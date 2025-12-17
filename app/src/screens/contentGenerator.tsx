@@ -15,6 +15,7 @@ import { v4 as uuid } from 'uuid'
 import { MODELS } from '../../constants'
 import { fetchStream } from '../utils'
 import { API_KEYS } from '../../constants'
+import { historyService } from '../services/historyService'
 
 interface ContentStyle {
   key: string
@@ -149,9 +150,30 @@ export function ContentGenerator() {
           setLoading(false)
           alert('生成失败，请重试')
         },
-        onClose: () => {
+        onClose: async () => {
           console.log('Stream closed')
           setLoading(false)
+
+          // 记录历史
+          try {
+            await historyService.saveRecord({
+              type: 'content',
+              title: `文案生成 - ${keywords}`,
+              description: `${selectedPersonaObj?.label} / ${selectedStyleObj?.label}`,
+              input_data: {
+                keywords,
+                persona: selectedPersonaObj?.label,
+                style: selectedStyleObj?.label,
+                wordCount,
+              },
+              output_data: {
+                content: localResponse,
+              },
+              feature: 'content_generator',
+            })
+          } catch (historyError) {
+            console.error('Failed to save history:', historyError)
+          }
         }
       })
 

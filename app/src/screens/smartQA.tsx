@@ -13,6 +13,7 @@ import * as ImagePicker from 'expo-image-picker'
 import { MODELS } from '../../constants'
 import { fetchStream } from '../utils'
 import { API_KEYS } from '../../constants'
+import { historyService } from '../services/historyService'
 
 interface ReplyOption {
   id: string
@@ -154,9 +155,29 @@ export function SmartQA() {
           setLoading(false)
           alert('生成失败，请重试')
         },
-        onClose: () => {
+        onClose: async () => {
           console.log('Stream closed')
           setLoading(false)
+
+          // 记录历史
+          try {
+            await historyService.saveRecord({
+              type: 'qa',
+              title: `智能问答 - ${question.substring(0, 20)}...`,
+              description: `${scenario} / ${style}`,
+              input_data: {
+                question,
+                scenario,
+                style,
+              },
+              output_data: {
+                responses: localResponse,
+              },
+              feature: 'smart_qa',
+            })
+          } catch (historyError) {
+            console.error('Failed to save history:', historyError)
+          }
         }
       })
 

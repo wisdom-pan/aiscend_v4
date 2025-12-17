@@ -14,6 +14,7 @@ import Ionicons from '@expo/vector-icons/Ionicons'
 import { MODELS } from '../../constants'
 import { fetchStream } from '../utils'
 import { API_KEYS } from '../../constants'
+import { historyService } from '../services/historyService'
 
 interface Platform {
   key: string
@@ -146,9 +147,32 @@ export function VideoCreator() {
           setLoading(false)
           alert('生成失败，请重试')
         },
-        onClose: () => {
+        onClose: async () => {
           console.log('Stream closed')
           setLoading(false)
+
+          // 记录历史
+          try {
+            await historyService.saveRecord({
+              type: 'video',
+              title: `${mode === 'create' ? '原创' : '优化'}脚本 - ${mode === 'create' ? topic : '脚本优化'}`,
+              description: `${PLATFORMS.find(p => p.key === platform)?.label} / ${style || '默认风格'}`,
+              input_data: {
+                mode,
+                topic,
+                platform,
+                style,
+                originalScript: mode === 'rewrite' ? originalScript : undefined,
+                optimizationNeeds: mode === 'rewrite' ? optimizationNeeds : undefined,
+              },
+              output_data: {
+                script: localResponse,
+              },
+              feature: 'video_creator',
+            })
+          } catch (historyError) {
+            console.error('Failed to save history:', historyError)
+          }
         }
       })
 

@@ -20,6 +20,7 @@ import Markdown from '@ronradtke/react-native-markdown-display'
 import { fetchStream, getFirstN, getFirstNCharsOrLess, getChatType } from '../utils'
 import { API_KEYS } from '../../constants'
 import { apiService } from '../services/apiService'
+import { historyService } from '../services/historyService'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 
 interface Message {
@@ -178,6 +179,21 @@ export function FacialDesign() {
         createdAt: new Date().toISOString()
       }
       setMessages(prev => [...prev, finalImageMessage])
+
+      // 记录测试历史
+      await historyService.saveRecord({
+        type: 'facial',
+        title: 'Gemini API 测试',
+        description: 'Gemini API效果图生成测试',
+        input_data: {
+          sampleImage,
+          sampleAnalysis
+        },
+        output_data: {
+          generatedImage: imageResult,
+        },
+        feature: 'facial_design',
+      })
 
     } catch (error) {
       console.error('测试效果图生成失败:', error)
@@ -376,6 +392,22 @@ export function FacialDesign() {
               createdAt: new Date().toISOString()
             }
             setMessages(prev => [...prev, finalImageMessage])
+
+            // 记录历史记录
+            await historyService.saveRecord({
+              type: 'facial',
+              title: `面部分析 - ${requirement}`,
+              description: localResponse.substring(0, 100) + '...',
+              input_data: {
+                images: imageContents,
+                requirement,
+              },
+              output_data: {
+                analysis: localResponse,
+                generatedImage: imageResult,
+              },
+              feature: 'facial_design',
+            })
 
           } catch (imageError) {
             console.error('效果图生成失败:', imageError)
