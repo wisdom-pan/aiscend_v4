@@ -4,7 +4,11 @@ const colors = {
   gray: 'rgba(0, 0, 0, .5)',
   lightWhite: 'rgba(255, 255, 255, .5)',
   blueTintColor: '#0281ff',
-  lightPink: '#F7B5CD'
+  lightPink: '#F7B5CD',
+  primaryBlue: '#4A90E2',
+  primaryGreen: '#5ED4A4',
+  lightBlue: '#E8F4FF',
+  cardBackground: '#FAFAFA',
 }
 
 const fonts = {
@@ -19,6 +23,26 @@ const fonts = {
   ultraBlackFont: 'Geist-Ultrablack',
 }
 
+const medicalTheme = {
+  ...fonts,
+  name: 'Medical',
+  label: 'medical',
+  textColor: '#2C3E50',
+  secondaryTextColor: colors.white,
+  mutedForegroundColor: '#95A5A6',
+  backgroundColor: '#F8F9FA',
+  placeholderTextColor: '#BDC3C7',
+  secondaryBackgroundColor: colors.black,
+  borderColor: 'rgba(74, 144, 226, .2)',
+  primaryColor: colors.primaryBlue,
+  buttonText: colors.white,
+  cardBackground: colors.white,
+  tintColor: colors.primaryBlue,
+  tintTextColor: colors.white,
+  tabBarActiveTintColor: colors.primaryBlue,
+  tabBarInactiveTintColor: '#95A5A6',
+}
+
 const lightTheme = {
   ...fonts,
   name: 'Light',
@@ -30,6 +54,9 @@ const lightTheme = {
   placeholderTextColor: colors.gray,
   secondaryBackgroundColor: colors.black,
   borderColor: 'rgba(0, 0, 0, .15)',
+  primaryColor: colors.primaryBlue,
+  buttonText: colors.white,
+  cardBackground: colors.white,
   tintColor: '#0281ff',
   tintTextColor: colors.white,
   tabBarActiveTintColor: colors.black,
@@ -48,6 +75,9 @@ const darkTheme = {
   laceholderTextColor: colors.lightWhite,
   secondaryBackgroundColor: colors.white,
   borderColor: 'rgba(255, 255, 255, .2)',
+  primaryColor: colors.primaryBlue,
+  buttonText: colors.white,
+  cardBackground: '#1E1E1E',
   tintColor: '#0281ff',
   tintTextColor: colors.white,
   tabBarActiveTintColor: colors.blueTintColor,
@@ -84,5 +114,5 @@ const vercel = {
 }
 
 export {
-  lightTheme, darkTheme, hackerNews, miami, vercel
+  medicalTheme, lightTheme, darkTheme, hackerNews, miami, vercel
 }

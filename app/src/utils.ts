@@ -1,26 +1,165 @@
 import { DOMAIN } from '../constants'
-import EventSource from 'react-native-sse'
 import { Model } from '../types'
 
+// 检查是否支持ReadableStream
+function supportsReadableStream(): boolean {
+  try {
+    return typeof ReadableStream !== 'undefined' &&
+           typeof ReadableStream.prototype.getReader === 'function'
+  } catch (e) {
+    return false
+  }
+}
+
+// 支持流式输出的fetch函数
+export async function fetchStream({
+  headers,
+  body,
+  type,
+  apiKey,
+  onMessage,
+  onError,
+  onOpen,
+  onClose
+}: {
+  headers?: any,
+  body: any,
+  type: string,
+  apiKey?: string,
+  onMessage?: (data: any) => void,
+  onError?: (error: any) => void,
+  onOpen?: () => void,
+  onClose?: () => void
+}) {
+  const apiUrl = `${DOMAIN}/chat/completions`
+
+  // 构建请求头
+  const requestHeaders: any = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    ...headers
+  }
+
+  // 如果提供了 API key，添加 Authorization header
+  if (apiKey) {
+    requestHeaders['Authorization'] = `Bearer ${apiKey}`
+    console.log('✅ API Key added to headers:', apiKey.substring(0, 10) + '...')
+  } else {
+    console.log('❌ No API Key provided to fetchStream')
+  }
+
+  console.log('Request URL:', apiUrl)
+  console.log('Request headers:', JSON.stringify(requestHeaders, null, 2))
+
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: requestHeaders,
+      body: JSON.stringify(body),
+      redirect: 'follow'
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    if (onOpen) onOpen()
+
+    // 优先使用ReadableStream进行流式读取
+    if (supportsReadableStream()) {
+      console.log('✅ Using ReadableStream for streaming')
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('Response body is not readable')
+      }
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+
+          if (done) {
+            console.log('✅ Stream complete')
+            if (onClose) onClose()
+            break
+          }
+
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6).trim()
+              if (data === '[DONE]') {
+                console.log('✅ Received [DONE]')
+                if (onClose) onClose()
+                return
+              }
+              try {
+                const parsed = JSON.parse(data)
+                if (onMessage) onMessage(parsed)
+              } catch (e) {
+                console.error('Failed to parse SSE data:', e)
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock()
+      }
+    } else {
+      console.log('⚠️ ReadableStream not supported, using text-based streaming')
+
+      // Fallback: 读取完整响应然后按行分割模拟流式效果
+      try {
+        const text = await response.text()
+        const lines = text.split('\n').filter(line => line.trim())
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6).trim()
+            if (data && data !== '[DONE]') {
+              try {
+                const parsed = JSON.parse(data)
+                if (onMessage) onMessage(parsed)
+                // 模拟流式延迟
+                await new Promise(resolve => setTimeout(resolve, 50))
+              } catch (e) {
+                console.error('Failed to parse SSE data:', e)
+              }
+            }
+          }
+        }
+
+        if (onClose) onClose()
+      } catch (parseError) {
+        throw new Error('Failed to parse response: ' + parseError)
+      }
+    }
+  } catch (error) {
+    console.error('Fetch stream error:', error)
+    if (onError) onError(error)
+    if (onClose) onClose()
+  }
+}
+
+// 保持向后兼容的 EventSource 包装器
 export function getEventSource({
   headers,
   body,
-  type
+  type,
+  apiKey
 } : {
   headers?: any,
   body: any,
-  type: string
+  type: string,
+  apiKey?: string
 }) {
-  const es = new EventSource(`${DOMAIN}/chat/${type}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...headers
-    },
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
-
-  return es;
+  console.warn('getEventSource is deprecated, use fetchStream instead')
+  return null
 }
 
 export function getFirstNCharsOrLess(text:string, numChars:number = 1000) {
@@ -44,7 +183,7 @@ export function getFirstN({ messages, size = 10 } : { size?: number, messages: a
 
 export function getChatType(type: Model) {
   if (type.label.includes('gpt')) {
-    return 'gpt'
+    return 'completions'
   }
   if (type.label.includes('cohere')) {
     return 'cohere'

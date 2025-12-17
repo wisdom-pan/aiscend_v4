@@ -1,9 +1,10 @@
 import { useContext, useRef, useCallback } from 'react';
 import { StyleSheet, Text, View, Button } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Chat, Images, Settings, Assistant } from './screens'
+import { FacialDesign, ContentGenerator, VideoCreator, SmartQA, Settings } from './screens'
 import { Header } from './components'
 import FeatherIcon from '@expo/vector-icons/Feather'
+import Ionicons from '@expo/vector-icons/Ionicons'
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -16,7 +17,7 @@ function MainComponent() {
   const insets = useSafeAreaInsets()
   const { theme } = useContext(ThemeContext)
   const styles = getStyles({ theme, insets })
-  
+
   return (
     <View style={styles.container}>
       <Tab.Navigator
@@ -30,13 +31,13 @@ function MainComponent() {
         }}
       >
         <Tab.Screen
-          name="Chat"
-          component={Chat}
+          name="面部美学"
+          component={FacialDesign}
           options={{
             header: () => <Header />,
             tabBarIcon: ({ color, size }) => (
-              <FeatherIcon
-                name="message-circle"
+              <Ionicons
+                name="analytics"
                 color={color}
                 size={size}
               />
@@ -44,13 +45,13 @@ function MainComponent() {
           }}
         />
         <Tab.Screen
-          name="OpenAI Assistant"
-          component={Assistant}
+          name="文案生成"
+          component={ContentGenerator}
           options={{
             header: () => <Header />,
             tabBarIcon: ({ color, size }) => (
-              <FeatherIcon
-                name="user"
+              <Ionicons
+                name="create-outline"
                 color={color}
                 size={size}
               />
@@ -58,13 +59,13 @@ function MainComponent() {
           }}
         />
         <Tab.Screen
-          name="Images"
-          component={Images}
+          name="内容创作"
+          component={VideoCreator}
           options={{
             header: () => <Header />,
             tabBarIcon: ({ color, size }) => (
-              <FeatherIcon
-                name="image"
+              <Ionicons
+                name="videocam-outline"
                 color={color}
                 size={size}
               />
@@ -72,13 +73,27 @@ function MainComponent() {
           }}
         />
         <Tab.Screen
-          name="Settings"
+          name="智能问答"
+          component={SmartQA}
+          options={{
+            header: () => <Header />,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons
+                name="chatbubble-ellipses-outline"
+                color={color}
+                size={size}
+              />
+            ),
+          }}
+        />
+        <Tab.Screen
+          name="设置"
           component={Settings}
           options={{
             header: () => <Header />,
             tabBarIcon: ({ color, size }) => (
-              <FeatherIcon
-                name="sliders"
+              <Ionicons
+                name="settings-outline"
                 color={color}
                 size={size}
               />
