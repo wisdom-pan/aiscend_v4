@@ -1,7 +1,7 @@
 import { useContext, useRef, useCallback } from 'react';
 import { StyleSheet, Text, View, Button } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { FacialDesign, ContentGenerator, VideoCreator, SmartQA, Settings } from './screens'
+import { FacialDesign, ContentGenerator, VideoCreator, SmartQA, History, Settings } from './screens'
 import { Header } from './components'
 import FeatherIcon from '@expo/vector-icons/Feather'
 import Ionicons from '@expo/vector-icons/Ionicons'
@@ -80,6 +80,20 @@ function MainComponent() {
             tabBarIcon: ({ color, size }) => (
               <Ionicons
                 name="chatbubble-ellipses-outline"
+                color={color}
+                size={size}
+              />
+            ),
+          }}
+        />
+        <Tab.Screen
+          name="历史记录"
+          component={History}
+          options={{
+            header: () => <Header />,
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons
+                name="time-outline"
                 color={color}
                 size={size}
               />
