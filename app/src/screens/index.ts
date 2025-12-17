@@ -1,4 +1,5 @@
-export { Chat } from './chat'
-export { Images } from './images'
+export { FacialDesign } from './facialDesign'
+export { ContentGenerator } from './contentGenerator'
+export { VideoCreator } from './videoCreator'
+export { SmartQA } from './smartQA'
 export { Settings } from './settings'
-export { Assistant } from './assistant'

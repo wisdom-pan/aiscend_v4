@@ -4,8 +4,6 @@ import {
   StyleSheet,
   TouchableHighlight,
   ScrollView,
-  Dimensions,
-  Image
 } from 'react-native'
 import { useContext } from 'react'
 import { AppContext, ThemeContext } from '../context'
@@ -15,30 +13,23 @@ import {
   CohereIcon,
   MistralIcon,
   GeminiIcon
- } from '../components/index'
+} from '../components/index'
 import FontAwesome from '@expo/vector-icons/FontAwesome5'
 import { IIconProps } from '../../types'
-import { MODELS, IMAGE_MODELS, ILLUSION_DIFFUSION_IMAGES } from '../../constants'
+import { MODELS } from '../../constants'
 import * as themes from '../theme'
 
-const { width } = Dimensions.get('window')
 const models = Object.values(MODELS)
-const imageModels = Object.values(IMAGE_MODELS)
 const _themes = Object.values(themes).map(v => ({
   name: v.name,
   label: v.label
 }))
-const diffusionImages = Object.values(ILLUSION_DIFFUSION_IMAGES)
 
 export function Settings() {
   const { theme, setTheme, themeName } = useContext(ThemeContext)
   const {
     chatType,
-    setChatType,
-    setImageModel,
-    imageModel,
-    illusionImage,
-    setIllusionImage
+    setChatType
   } = useContext(AppContext)
 
   const styles = getStyles(theme)
@@ -81,12 +72,13 @@ export function Settings() {
       style={styles.container}
       contentContainerStyle={styles.contentContainer}
     >
-      <View
-        style={styles.titleContainer}
-      >
-        <Text
-            style={styles.mainText}
-        >Theme</Text>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>设置</Text>
+        <Text style={styles.headerSubtitle}>配置主题和模型</Text>
+      </View>
+
+      <View style={styles.titleContainer}>
+        <Text style={styles.mainText}>🎨 主题</Text>
       </View>
       {
         _themes.map((value, index) => (
@@ -158,79 +150,6 @@ export function Settings() {
           })
         }
       </View>
-      <View
-        style={styles.titleContainer}
-      >
-      <Text
-          style={styles.mainText}
-        >Image Model</Text>
-      </View>
-      <View style={styles.buttonContainer}>
-        {
-          imageModels.map((model, index) => {
-            return (
-              <TouchableHighlight
-                key={index}
-                underlayColor='transparent'
-                onPress={() => {
-                  setImageModel(model.label)
-                }}
-              >
-                <View
-                  style={{...styles.chatChoiceButton, ...getDynamicViewStyle(imageModel, model.label, theme)}}
-                >
-                {
-                  renderIcon({
-                    type: model.label,
-                    props: {
-                      theme,
-                      size: 18,
-                      style: {marginRight: 8},
-                      color: imageModel === model.label ? theme.tintTextColor : theme.textColor
-                    }
-                  })
-                }
-                <Text
-                  style={{...styles.chatTypeText, ...getDynamicTextStyle(imageModel, model.label, theme)}}
-                >
-                  { model.name }
-                </Text>
-              </View>
-            </TouchableHighlight>
-            )
-          })
-        }
-        <View
-          style={styles.titleContainer}
-        >
-          <Text
-            style={styles.mainText}
-          >Illusion Diffusion Base</Text>
-        </View>
-        <View
-          style={styles.illusionImageContainer}
-        >
-          {
-            diffusionImages.map((model, index) => (
-              <TouchableHighlight
-                key={index}
-                underlayColor='transparent'
-                onPress={() => {
-                  setIllusionImage(model.label)
-                }}
-              >
-                <Image
-                  source={{ uri: model.image}}
-                  style={{
-                    ...styles.illusionImage,
-                    borderColor: illusionImage === model.label ? theme.tintColor : theme.textColor
-                  }}
-                />
-              </TouchableHighlight>
-            ))
-          }
-        </View>
-      </View>
     </ScrollView>
   )
 }
@@ -253,27 +172,30 @@ function getDynamicViewStyle(baseType:string, type:string, theme:any) {
 }
 
 const getStyles = (theme:any) => StyleSheet.create({
-  illusionImage: {
-    width: (width - 30) / 3,
-    height: (width - 30) / 3,
-    borderWidth: 4,
-  },
-  illusionImageContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 10
-  },
   buttonContainer: {
     marginBottom: 20
   },
   container: {
-    padding: 14,
     flex: 1,
     backgroundColor: theme.backgroundColor,
-    paddingTop: 10,
   },
   contentContainer: {
     paddingBottom: 40
+  },
+  header: {
+    padding: 20,
+    backgroundColor: theme.primaryColor,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: theme.buttonText,
+    marginBottom: 8,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: theme.buttonText,
+    opacity: 0.9,
   },
   titleContainer: {
     paddingVertical: 10,

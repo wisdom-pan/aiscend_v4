@@ -11,7 +11,7 @@ import {
   Keyboard
 } from 'react-native'
 import 'react-native-get-random-values'
-import { useContext, useState, useRef } from 'react'
+import { useContext, useState, useRef, useEffect } from 'react'
 import { ThemeContext, AppContext } from '../context'
 import { getEventSource, getFirstN, getFirstNCharsOrLess, getChatType } from '../utils'
 import { v4 as uuid } from 'uuid'
@@ -23,6 +23,9 @@ import {
 import * as Clipboard from 'expo-clipboard'
 import { useActionSheet } from '@expo/react-native-action-sheet'
 import Markdown from '@ronradtke/react-native-markdown-display'
+import { API_KEYS } from '../../constants'
+import { apiService } from '../services/apiService'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 
 export function Chat() {
   const [loading, setLoading] = useState<boolean>(false)
@@ -30,8 +33,51 @@ export function Chat() {
   const scrollViewRef = useRef<ScrollView | null>(null)
   const { showActionSheetWithOptions } = useActionSheet()
 
+  // API keys 状态
+  const [openaiApiKey, setOpenaiApiKey] = useState<string>('')
+  const [geminiApiKey, setGeminiApiKey] = useState<string>('')
+
+  // 初始化 API Keys
+  useEffect(() => {
+    async function initializeKeys() {
+      // 首先尝试从 constants 导入的硬编码密钥
+      if (API_KEYS.OPENAI) {
+        setOpenaiApiKey(API_KEYS.OPENAI)
+      }
+      if (API_KEYS.GEMINI) {
+        setGeminiApiKey(API_KEYS.GEMINI)
+      }
+
+      // 然后尝试从 apiService 加载（会优先使用 AsyncStorage 中的值）
+      try {
+        await apiService.loadApiKeys()
+        const { hasOpenAI, hasGemini } = apiService.hasApiKeys()
+
+        if (hasOpenAI) {
+          // 从 AsyncStorage 或环境变量获取
+          const stored = await AsyncStorage.getItem('openai_api_key')
+          if (stored) setOpenaiApiKey(stored)
+        }
+        if (hasGemini) {
+          const stored = await AsyncStorage.getItem('gemini_api_key')
+          if (stored) setGeminiApiKey(stored)
+        }
+      } catch (error) {
+        console.error('Failed to initialize API keys:', error)
+      }
+    }
+
+    initializeKeys()
+  }, [])
+
+  // 调试输出
+  useEffect(() => {
+    console.log('=== API Keys Debug ===')
+    console.log('OpenAI Key:', openaiApiKey ? `${openaiApiKey.substring(0, 10)}... (${openaiApiKey.length})` : 'NOT FOUND')
+    console.log('Gemini Key:', geminiApiKey ? `${geminiApiKey.substring(0, 10)}... (${geminiApiKey.length})` : 'NOT FOUND')
+  }, [openaiApiKey, geminiApiKey])
+
   // claude state management
-  const [claudeAPIMessages, setClaudeAPIMessages] = useState('')
   const [claudeResponse, setClaudeResponse] = useState({
     messages: [],
     index: uuid(),
@@ -87,6 +133,10 @@ export function Chat() {
   }
   async function generateGeminiResponse() {
     if (!input) return
+    if (!geminiApiKey) {
+      console.error('❌ Gemini API Key not loaded')
+      return
+    }
     Keyboard.dismiss()
     let localResponse = ''
     const geminiInput = `${input}`
@@ -115,7 +165,8 @@ export function Chat() {
         prompt: geminiInput,
         model: chatType.label
       },
-      type: getChatType(chatType)
+      type: getChatType(chatType),
+      apiKey: geminiApiKey  // 使用 geminiApiKey 因为这是 Gemini 调用
     }
 
     const es = await getEventSource(eventSourceArgs)
@@ -163,6 +214,10 @@ export function Chat() {
 
   async function generateMistralResponse() {
     if (!input) return
+    if (!openaiApiKey) {
+      console.error('❌ OpenAI API Key not loaded for Mistral')
+      return
+    }
     Keyboard.dismiss()
     let localResponse = ''
     const mistralInput = `${mistralAPIMessages}\n\n Prompt: ${input}`
@@ -191,7 +246,8 @@ export function Chat() {
         prompt: mistralInput,
         model: chatType.label
       },
-      type: getChatType(chatType)
+      type: getChatType(chatType),
+      apiKey: openaiApiKey  // Mistral 使用 OpenAI 兼容 API
     }
 
     const es = await getEventSource(eventSourceArgs)
@@ -238,9 +294,12 @@ export function Chat() {
 
   async function generateClaudeResponse() {
     if (!input) return
+    if (!openaiApiKey) {
+      console.error('❌ OpenAI API Key not loaded for Claude')
+      return
+    }
     Keyboard.dismiss()
     let localResponse = ''
-    const claudeInput = `${claudeAPIMessages}\n\nHuman: ${input}\n\nAssistant:`
 
     let claudeArray = [
       ...claudeResponse.messages, {
@@ -261,12 +320,27 @@ export function Chat() {
     }, 1)
     setInput('')
 
+    // 构建符合 OpenAI API 标准的 messages 数组
+    const messages = claudeResponse.messages.flatMap(msg => {
+      const result = []
+      if (msg.user) {
+        result.push({ role: 'user', content: msg.user })
+      }
+      if (msg.assistant) {
+        result.push({ role: 'assistant', content: msg.assistant })
+      }
+      return result
+    })
+    messages.push({ role: 'user', content: input })
+
     const eventSourceArgs = {
       body: {
-        prompt: claudeInput,
-        model: chatType.label
+        messages: messages,
+        model: chatType.label === 'claude' ? 'gpt-5.1' : chatType.label,
+        stream: true
       },
       type: getChatType(chatType),
+      apiKey: openaiApiKey  // 使用 openaiApiKey
     }
 
     const es = await getEventSource(eventSourceArgs)
@@ -282,18 +356,21 @@ export function Chat() {
               animated: true
             })
           }
-          const data = event.data
-          localResponse = localResponse + JSON.parse(data).text
-          claudeArray[claudeArray.length - 1].assistant = localResponse
-          setClaudeResponse(c => ({
-            index: c.index,
-            messages: JSON.parse(JSON.stringify(claudeArray))
-          }))
+          try {
+            const data = JSON.parse(event.data)
+            // 兼容 OpenAI 标准响应格式
+            const content = data.choices?.[0]?.delta?.content || data.text || ''
+            localResponse = localResponse + content
+            claudeArray[claudeArray.length - 1].assistant = localResponse
+            setClaudeResponse(c => ({
+              index: c.index,
+              messages: JSON.parse(JSON.stringify(claudeArray))
+            }))
+          } catch (error) {
+            console.error('Failed to parse SSE data:', error)
+          }
         } else {
           setLoading(false)
-          setClaudeAPIMessages(
-            `${claudeAPIMessages}\n\nHuman: ${input}\n\nAssistant:${getFirstNCharsOrLess(localResponse, 2000)}`
-          )
           es.close()
         }
       } else if (event.type === "error") {
@@ -311,6 +388,10 @@ export function Chat() {
 
   async function generateOpenaiResponse() {
     try {
+      if (!openaiApiKey) {
+        console.error('❌ OpenAI API Key not loaded')
+        return
+      }
       setLoading(true)
       // set message state for openai to have context on previous conversations
       let messagesRequest = getFirstN({ messages: openaiMessages })
@@ -347,10 +428,15 @@ export function Chat() {
           messages: messagesRequest,
           model: chatType.label
         },
-        type: getChatType(chatType)
+        type: getChatType(chatType),
+        apiKey: openaiApiKey  // 使用 openaiApiKey
       }
       setInput('')
-      const eventSource = getEventSource(eventSourceArgs)
+      const eventSource = getEventSource({
+        body: eventSourceArgs.body,
+        type: eventSourceArgs.type,
+        apiKey: eventSourceArgs.apiKey
+      })
 
       console.log('about to open listener...')
       const listener = (event:any) => {
@@ -396,6 +482,10 @@ export function Chat() {
   async function generateCohereResponse() {
     try {
       if (!input) return
+      if (!openaiApiKey) {
+        console.error('❌ OpenAI API Key not loaded for Cohere')
+        return
+      }
       Keyboard.dismiss()
       let localResponse = ''
       let requestInput = input
@@ -427,10 +517,11 @@ export function Chat() {
           prompt: requestInput,
           conversationId: cohereResponse.index,
           model: chatType.label
-        }
+        },
+        apiKey: openaiApiKey  // Cohere 使用 OpenAI 兼容 API
       }
 
-      const es = await getEventSource(eventSourceArgs)
+      const es = getEventSource(eventSourceArgs)
 
       const listener = (event) => {
         if (
@@ -498,11 +589,11 @@ export function Chat() {
     }
   }
 
-  async function copyToClipboard(text) {
+  async function copyToClipboard(text: string) {
     await Clipboard.setStringAsync(text)
   }
 
-  async function showClipboardActionsheet(text) {
+  async function showClipboardActionsheet(text: string) {
     const cancelButtonIndex = 2
     showActionSheetWithOptions({
       options: ['Copy to clipboard', 'Clear chat', 'cancel'],
@@ -524,7 +615,6 @@ export function Chat() {
         messages: [],
         index: uuid()
       })
-      setClaudeAPIMessages('')
     } else if (chatType.label.includes('cohere')) {
       setCohereResponse({
         messages: [],

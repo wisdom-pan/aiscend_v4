@@ -47,6 +47,7 @@ const PERSONAS: Persona[] = [
 
 export function ContentGenerator() {
   const [loading, setLoading] = useState(false)
+  const [abortController, setAbortController] = useState<AbortController | null>(null)
   const [image, setImage] = useState<string | null>(null)
   const [selectedPersona, setSelectedPersona] = useState<string>('professional')
   const [selectedStyle, setSelectedStyle] = useState<string>('professional')
@@ -55,6 +56,15 @@ export function ContentGenerator() {
   const [generatedContents, setGeneratedContents] = useState<string[]>([])
   const { theme } = useContext(ThemeContext)
   const styles = getStyles(theme)
+
+  // 停止响应
+  const stopResponse = () => {
+    if (abortController) {
+      abortController.abort()
+      setAbortController(null)
+    }
+    setLoading(false)
+  }
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -277,14 +287,25 @@ export function ContentGenerator() {
         </View>
       </View>
 
-      <TouchableOpacity
-        style={[styles.generateButton, loading && styles.generateButtonDisabled]}
-        onPress={generateContent}
-        disabled={loading}
-      >
-        <Ionicons name="create-outline" size={24} color={theme.buttonText} />
-        <Text style={styles.generateButtonText}>生成文案</Text>
-      </TouchableOpacity>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <TouchableOpacity
+            style={styles.stopButton}
+            onPress={stopResponse}
+          >
+            <Ionicons name="stop-circle" size={24} color="#fff" />
+            <Text style={styles.stopButtonText}>停止生成</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={styles.generateButton}
+          onPress={generateContent}
+        >
+          <Ionicons name="create-outline" size={24} color={theme.buttonText} />
+          <Text style={styles.generateButtonText}>生成文案</Text>
+        </TouchableOpacity>
+      )}
 
       {generatedContents.length > 0 && (
         <View style={styles.resultsContainer}>
@@ -464,6 +485,29 @@ const getStyles = (theme: any) => StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: theme.buttonText,
+  },
+  loadingContainer: {
+    margin: 20,
+    alignItems: 'center',
+  },
+  stopButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FF4757',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  stopButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
   resultsContainer: {
     padding: 20,
