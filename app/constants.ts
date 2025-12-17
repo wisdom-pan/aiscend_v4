@@ -4,13 +4,25 @@ import { OpenAIIcon } from './src/components/OpenAIIcon'
 import { MistralIcon } from './src/components/MistralIcon'
 import { GeminiIcon } from './src/components/GeminiIcon'
 
-export const DOMAIN = process.env.EXPO_PUBLIC_ENV === 'DEVELOPMENT' ?
-  process.env.EXPO_PUBLIC_DEV_API_URL :
-  process.env.EXPO_PUBLIC_PROD_API_URL
+export const DOMAIN = 'https://yunwu.ai/v1'
+
+// API Keys - 直接硬编码,避免环境变量在 release 模式下的问题
+export const API_KEYS = {
+  OPENAI: 'sk-7bW8PnA4sv9mt7ipJsNzkDDtYSOYlb60kusyzJmqaTo52zld',
+  GEMINI: 'sk-eZ4g8gRVzwUGrxDJScnzKiYF6ctQPq82DeDDYTpl5lA8qEfJ',
+}
+
+export const API_CONFIG = {
+  BASE_URL: 'https://yunwu.ai/v1',
+  OPENAI_API_URL: 'https://yunwu.ai/v1/chat/completions',
+  GEMINI_API_URL: 'https://yunwu.ai/v1beta/models/gemini-3-pro-image-preview:generateContent',
+  OPENAI_MODEL: 'gpt-5.2',
+  GEMINI_MODEL: 'gemini-3-pro-image-preview',
+}
 
 export const MODELS = {
-  gpt: { name: 'GPT 4', label: 'gpt', icon: OpenAIIcon },
-  gptTurbo: { name: 'GPT Turbo', label: 'gptTurbo', icon: OpenAIIcon },
+  gpt: { name: 'GPT 4', label: 'gpt-5.1', icon: OpenAIIcon },
+  gptTurbo: { name: 'GPT Turbo', label: 'gpt-5.1', icon: OpenAIIcon },
   claude: { name: 'Claude', label: 'claude', icon: AnthropicIcon },
   claudeInstant: { name: 'Claude Instant', label: 'claudeInstant', icon: AnthropicIcon },
   cohere: { name: 'Cohere', label: 'cohere', icon: CohereIcon },

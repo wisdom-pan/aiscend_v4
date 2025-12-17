@@ -7,6 +7,7 @@ import { ThemeContext, AppContext } from './src/context'
 import * as themes from './src/theme'
 import { IMAGE_MODELS, MODELS, ILLUSION_DIFFUSION_IMAGES } from './constants'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import { apiService } from './src/services/apiService'
 import { ChatModelModal } from './src/components/index'
 import { Model } from './types'
 import { ActionSheetProvider } from '@expo/react-native-action-sheet'
@@ -25,7 +26,7 @@ LogBox.ignoreLogs([
 ])
 
 export default function App() {
-  const [theme, setTheme] = useState<string>('light')
+  const [theme, setTheme] = useState<string>('medical')
   const [chatType, setChatType] = useState<Model>(MODELS.gptTurbo)
   const [imageModel, setImageModel] = useState<string>(IMAGE_MODELS.fastImage.label)
   const [modalVisible, setModalVisible] = useState<boolean>(false)
@@ -44,7 +45,22 @@ export default function App() {
 
   useEffect(() => {
     configureStorage()
+    initializeApiService()
   }, [])
+
+  async function initializeApiService() {
+    try {
+      const keysStatus = await apiService.loadApiKeys()
+
+      if (!keysStatus.hasOpenAI || !keysStatus.hasGemini) {
+        console.log('API keys not configured. Please configure in Settings.')
+      } else {
+        console.log('✅ API keys loaded successfully from environment/storage')
+      }
+    } catch (error) {
+      console.error('Failed to initialize API service:', error)
+    }
+  }
 
   async function configureStorage() {
     try {
