@@ -20,7 +20,9 @@ export async function fetchStream({
   onMessage,
   onError,
   onOpen,
-  onClose
+  onClose,
+  abortController,
+  timeout = 300000
 }: {
   headers?: any,
   body: any,
@@ -29,7 +31,9 @@ export async function fetchStream({
   onMessage?: (data: any) => void,
   onError?: (error: any) => void,
   onOpen?: () => void,
-  onClose?: () => void
+  onClose?: () => void,
+  abortController?: AbortController | null,
+  timeout?: number
 }) {
   const apiUrl = `${DOMAIN}/chat/completions`
 
@@ -50,14 +54,31 @@ export async function fetchStream({
 
   console.log('Request URL:', apiUrl)
   console.log('Request headers:', JSON.stringify(requestHeaders, null, 2))
+  console.log('Timeout:', timeout, 'ms')
 
   try {
+    // 创建超时控制器
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort('timeout'), timeout)
+
+    // 合并两个信号源
+    const combinedSignal = new AbortController()
+    const signals = [controller.signal, abortController?.signal].filter(Boolean)
+    if (signals.length > 0) {
+      signals.forEach(signal => {
+        signal.addEventListener('abort', () => combinedSignal.abort(signal.reason))
+      })
+    }
+
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: requestHeaders,
       body: JSON.stringify(body),
-      redirect: 'follow'
+      redirect: 'follow',
+      signal: combinedSignal.signal
     })
+
+    clearTimeout(timeoutId)
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`)
@@ -100,9 +121,11 @@ export async function fetchStream({
               }
               try {
                 const parsed = JSON.parse(data)
+                console.log('📦 [fetchStream] 解析数据:', JSON.stringify(parsed, null, 2))
                 if (onMessage) onMessage(parsed)
               } catch (e) {
                 console.error('Failed to parse SSE data:', e)
+                console.log('原始数据:', data)
               }
             }
           }
@@ -124,11 +147,13 @@ export async function fetchStream({
             if (data && data !== '[DONE]') {
               try {
                 const parsed = JSON.parse(data)
+                console.log('📦 [fetchStream-fallback] 解析数据:', JSON.stringify(parsed, null, 2))
                 if (onMessage) onMessage(parsed)
                 // 模拟流式延迟
                 await new Promise(resolve => setTimeout(resolve, 50))
               } catch (e) {
                 console.error('Failed to parse SSE data:', e)
+                console.log('原始数据:', data)
               }
             }
           }

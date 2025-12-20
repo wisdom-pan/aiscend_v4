@@ -6,17 +6,36 @@ const OPENAI_API_URL = process.env.EXPO_PUBLIC_BASE_URL
   : 'https://yunwu.ai/v1/chat/completions'
 
 const GEMINI_API_BASE_URL = process.env.EXPO_PUBLIC_BASE_URL
-  ? `${process.env.EXPO_PUBLIC_BASE_URL}/v1beta/models/gemini-3-pro-image-preview:generateContent`
-  : 'https://yunwu.ai/v1beta/models/gemini-3-pro-image-preview:generateContent'
+  ? `${process.env.EXPO_PUBLIC_BASE_URL}/chat/completions`
+  : 'https://yunwu.ai/v1/chat/completions'
 
 // ⚠️ 注意：不要在客户端代码中硬编码API密钥
 // 使用环境变量或用户输入的密钥
-const OPENAI_MODEL = process.env.EXPO_PUBLIC_OPENAI_MODEL || 'gpt-5.2'
-const GEMINI_MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-3-pro-image-preview'
+const OPENAI_MODEL = process.env.EXPO_PUBLIC_OPENAI_MODEL || 'gemini-3-flash-preview'
+const GEMINI_MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-3-flash-preview'
+const IMAGE_GENERATION_MODEL = process.env.EXPO_PUBLIC_IMAGE_MODEL || 'gemini-3-pro-image-preview'
 
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant'
-  content: string
+  content: string | Array<{
+    type: 'text' | 'image_url'
+    text?: string
+    image_url?: {
+      url: string
+    }
+  }>
+}
+
+interface ImageUrlPart {
+  type: 'image_url'
+  image_url: {
+    url: string
+  }
+}
+
+interface TextPart {
+  type: 'text'
+  text: string
 }
 
 interface OpenAIRequest {
@@ -25,30 +44,6 @@ interface OpenAIRequest {
   stream?: boolean
   temperature?: number
   max_tokens?: number
-}
-
-interface GeminiPart {
-  text?: string
-  inline_data?: {
-    mime_type: string
-    data: string
-  }
-}
-
-interface GeminiContent {
-  role: string
-  parts: GeminiPart[]
-}
-
-interface GeminiRequest {
-  contents: GeminiContent[]
-  generationConfig?: {
-    responseModalities?: string[]
-    imageConfig?: {
-      aspectRatio?: string
-      imageSize?: string
-    }
-  }
 }
 
 export class ApiService {
@@ -169,46 +164,47 @@ export class ApiService {
     options: {
       aspectRatio?: string
       imageSize?: string
+      model?: string
     } = {}
   ): Promise<{ text: string, image?: string }> {
     try {
-      const parts: GeminiPart[] = []
+      const model = options.model || GEMINI_MODEL
 
-      // 支持单张或多张图片
-      if (imageBase64) {
-        const images = Array.isArray(imageBase64) ? imageBase64 : [imageBase64]
-        images.forEach(img => {
-          parts.push({
-            inline_data: {
-              mime_type: 'image/jpeg',
-              data: img.split(',')[1] || img,
-            }
-          })
-        })
+      // 使用统一的chat completions接口
+      let content: string | Array<TextPart | ImageUrlPart>
+
+      if (Array.isArray(imageBase64) && imageBase64.length > 0) {
+        content = [
+          { type: 'text', text: prompt } as TextPart,
+          ...imageBase64.map(img => ({
+            type: 'image_url',
+            image_url: { url: img.startsWith('data:') ? img : `data:image/jpeg;base64,${img}` }
+          })) as ImageUrlPart[]
+        ]
+      } else {
+        content = prompt
       }
 
-      parts.push({ text: prompt })
-
-      const requestBody: GeminiRequest = {
-        contents: [
-          {
-            role: 'user',
-            parts
-          }
-        ],
-        generationConfig: {
-          responseModalities: ['TEXT', 'IMAGE'],
-          imageConfig: {
-            aspectRatio: options.aspectRatio || '9:16',
-            imageSize: options.imageSize || '4K',
-          }
+      const messages: OpenAIMessage[] = [
+        {
+          role: 'user',
+          content
         }
+      ]
+
+      const requestBody: OpenAIRequest = {
+        model: model,
+        messages,
+        temperature: 0.5,
+        stream: false,
       }
 
-      const response = await fetch(`${GEMINI_API_BASE_URL}?key=${this.geminiApiKey}`, {
+      const response = await fetch(GEMINI_API_BASE_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.geminiApiKey}`,
+          'Accept': 'application/json',
         },
         body: JSON.stringify(requestBody),
       })
@@ -222,17 +218,22 @@ export class ApiService {
       let text = ''
       let image = ''
 
-      if (data.candidates && data.candidates[0] && data.candidates[0].content) {
-        const content = data.candidates[0].content
-        if (content.parts) {
-          content.parts.forEach((part: any) => {
-            if (part.text) {
-              text += part.text
-            }
-            if (part.inlineData) {
-              image = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`
-            }
-          })
+      // 使用OpenAI格式的响应
+      if (data.choices && data.choices[0] && data.choices[0].message) {
+        const content = data.choices[0].message.content || ''
+
+        // 检查content中是否包含markdown格式的图片
+        const imageMatch = content.match(/!\[image\]\((data:image\/[^;]+;base64,[^)]+)\)/)
+        if (imageMatch && imageMatch[1]) {
+          image = imageMatch[1]
+          text = content.replace(/!\[image\]\([^)]+\)/, '[图片]').trim()
+        } else {
+          text = content
+        }
+
+        // 检查是否有image_url字段
+        if (data.choices[0].message.image_url) {
+          image = data.choices[0].message.image_url.url
         }
       }
 
@@ -293,24 +294,11 @@ export class ApiService {
 
 请返回3条完整的文案，每条用---分隔。`
 
-      const messages: OpenAIMessage[] = [
-        {
-          role: 'system',
-          content: '你是一位专业的医美营销文案专家，擅长创作吸引人的朋友圈内容。'
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
-
-      const result = await this.callOpenAI(messages, {
-        model: OPENAI_MODEL || 'gpt-5.1',
-        temperature: 0.8,
-        maxTokens: 1000,
+      const result = await this.callGemini(prompt, undefined, {
+        model: GEMINI_MODEL
       })
 
-      return result.split('---').map(s => s.trim()).filter(s => s.length > 0)
+      return result.text.split('---').map(s => s.trim()).filter(s => s.length > 0)
     } catch (error) {
       console.error('Content generation failed:', error)
       throw error
@@ -363,24 +351,13 @@ ${originalScript}
 请用markdown格式输出优化后的脚本。`
       }
 
-      const messages: OpenAIMessage[] = [
-        {
-          role: 'system',
-          content: '你是一位资深的短视频内容创作专家，擅长医美行业的视频脚本创作。'
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
+      const systemPrompt = '你是一位资深的短视频内容创作专家，擅长医美行业的视频脚本创作。'
 
-      const result = await this.callOpenAI(messages, {
-        model: OPENAI_MODEL || 'gpt-5.1',
-        temperature: 0.7,
-        maxTokens: 2000,
+      const result = await this.callGemini(`${systemPrompt}\n\n${prompt}`, undefined, {
+        model: GEMINI_MODEL
       })
 
-      return result
+      return result.text
     } catch (error) {
       console.error('Video script generation failed:', error)
       throw error
@@ -416,24 +393,13 @@ ${originalScript}
 风格：内容
 ---`
 
-      const messages: OpenAIMessage[] = [
-        {
-          role: 'system',
-          content: '你是一位资深的医美咨询师，擅长高情商的客户沟通。'
-        },
-        {
-          role: 'user',
-          content: prompt
-        }
-      ]
+      const systemPrompt = '你是一位资深的医美咨询师，擅长高情商的客户沟通。'
 
-      const result = await this.callOpenAI(messages, {
-        model: OPENAI_MODEL || 'gpt-5.1',
-        temperature: 0.8,
-        maxTokens: 1500,
+      const result = await this.callGemini(`${systemPrompt}\n\n${prompt}`, undefined, {
+        model: GEMINI_MODEL
       })
 
-      const replies = result.split('---').map(s => s.trim()).filter(s => s.length > 0)
+      const replies = result.text.split('---').map(s => s.trim()).filter(s => s.length > 0)
 
       return replies.map(reply => {
         const [stylePart, ...contentParts] = reply.split('：')
@@ -453,13 +419,21 @@ ${originalScript}
     adjustmentSuggestions: string
   ): Promise<string> {
     try {
-      const imagePrompt = `请基于这张原始面部照片，根据以下调整建议生成优化后的效果图：
+      const imagePrompt = `请对这张面部照片进行精确编辑，根据以下调整建议生成优化后的效果图：
 
+调整建议：
 ${adjustmentSuggestions}
 
-请生成一张高质量的面部优化效果图，展现改善后的效果。保持照片的真实感和自然度，确保调整后的效果符合医美美学标准。`
+要求：
+1. 严格基于原始照片进行编辑，不要生成全新图片
+2. 只调整指定的区域，保持照片其他部分完全不变
+3. 保持照片的光照、角度、比例一致
+4. 确保调整后的效果自然真实
+5. 输出格式：![image](data:image/jpeg;base64,...)`
 
-      const result = await this.callGemini(imagePrompt, originalImage)
+      const result = await this.callGemini(imagePrompt, originalImage, {
+        model: IMAGE_GENERATION_MODEL
+      })
 
       if (!result.image) {
         throw new Error('No image generated')

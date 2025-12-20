@@ -10,8 +10,10 @@ import {
   TextInput,
   FlatList,
   KeyboardAvoidingView,
-  Keyboard
+  Keyboard,
+  Alert
 } from 'react-native'
+import * as Clipboard from 'expo-clipboard'
 import { useState, useRef, useContext, useEffect } from 'react'
 import { ThemeContext, AppContext } from '../context'
 import * as ImagePicker from 'expo-image-picker'
@@ -49,6 +51,7 @@ export function FacialDesign() {
   const [pendingImages, setPendingImages] = useState<string[]>([])
   const [openaiApiKey, setOpenaiApiKey] = useState<string>('')
   const [geminiApiKey, setGeminiApiKey] = useState<string>('')
+  const [backgroundTaskId, setBackgroundTaskId] = useState<string | null>(null)
   const scrollViewRef = useRef<ScrollView | null>(null)
   const { theme } = useContext(ThemeContext)
   const { chatType } = useContext(AppContext)
@@ -62,9 +65,10 @@ export function FacialDesign() {
     }
     setLoading(false)
     setGeneratingImage(false)
+    clearBackgroundTask()
   }
 
-  // 初始化 API Keys
+  // 初始化 API Keys 和检查后台任务
   useEffect(() => {
     async function initializeKeys() {
       // 首先尝试从 constants 导入的硬编码密钥
@@ -82,17 +86,30 @@ export function FacialDesign() {
 
         if (hasOpenAI) {
           const stored = await AsyncStorage.getItem('openai_api_key')
-          if (stored) setOpenaiApiKey(stored)
+          // 优先使用API_KEYS常量，如果没有再使用存储的值
+          if (API_KEYS.OPENAI) {
+            setOpenaiApiKey(API_KEYS.OPENAI)
+          } else if (stored) {
+            setOpenaiApiKey(stored)
+          }
         }
         if (hasGemini) {
           const stored = await AsyncStorage.getItem('gemini_api_key')
-          if (stored) setGeminiApiKey(stored)
+          // 优先使用API_KEYS常量，如果没有再使用存储的值
+          if (API_KEYS.GEMINI) {
+            setGeminiApiKey(API_KEYS.GEMINI)
+          } else if (stored) {
+            setGeminiApiKey(stored)
+          }
         }
 
-        // 设置API密钥到apiService
-        const openaiKey = (await AsyncStorage.getItem('openai_api_key')) || API_KEYS.OPENAI || ''
-        const geminiKey = (await AsyncStorage.getItem('gemini_api_key')) || API_KEYS.GEMINI || ''
+        // 设置API密钥到apiService - 优先使用API_KEYS常量
+        const openaiKey = API_KEYS.OPENAI || (await AsyncStorage.getItem('openai_api_key')) || ''
+        const geminiKey = API_KEYS.GEMINI || (await AsyncStorage.getItem('gemini_api_key')) || ''
         await apiService.setApiKeys(openaiKey, geminiKey)
+
+        // 检查是否有正在运行的后台任务
+        await checkBackgroundTask()
       } catch (error) {
         console.error('Failed to initialize API keys:', error)
       }
@@ -100,6 +117,180 @@ export function FacialDesign() {
 
     initializeKeys()
   }, [])
+
+  // 检查并恢复后台任务
+  const checkBackgroundTask = async () => {
+    try {
+      const backgroundTask = await AsyncStorage.getItem('facial_background_task')
+      if (backgroundTask) {
+        const task = JSON.parse(backgroundTask)
+        console.log('发现后台任务，正在恢复...', task)
+        setBackgroundTaskId(task.id)
+        setLoading(true)
+
+        // 恢复任务
+        if (task.type === 'analyze') {
+          await resumeAnalyzeTask(task)
+        } else if (task.type === 'image_generation') {
+          await resumeImageGenerationTask(task)
+        }
+      }
+    } catch (error) {
+      console.error('检查后台任务失败:', error)
+    }
+  }
+
+  // 保存后台任务
+  const saveBackgroundTask = async (task: any) => {
+    try {
+      await AsyncStorage.setItem('facial_background_task', JSON.stringify(task))
+      setBackgroundTaskId(task.id)
+    } catch (error) {
+      console.error('保存后台任务失败:', error)
+    }
+  }
+
+  // 清除后台任务
+  const clearBackgroundTask = async () => {
+    try {
+      await AsyncStorage.removeItem('facial_background_task')
+      setBackgroundTaskId(null)
+    } catch (error) {
+      console.error('清除后台任务失败:', error)
+    }
+  }
+
+  // 恢复分析任务
+  const resumeAnalyzeTask = async (task: any) => {
+    try {
+      let localResponse = task.partialResponse || ''
+      const controller = new AbortController()
+      setAbortController(controller)
+
+      const assistantMessage: Message = {
+        id: generateId(),
+        type: 'assistant',
+        content: localResponse,
+        createdAt: new Date().toISOString()
+      }
+
+      setMessages(prev => [...prev, assistantMessage])
+
+      // 继续流式请求
+      const messages = [
+        {
+          role: 'user' as const,
+          content: [
+            {
+              type: 'text' as const,
+              text: task.prompt
+            },
+            ...task.imageContents.map((img: string) => ({
+              type: 'image_url' as const,
+              image_url: { url: img }
+            }))
+          ]
+        }
+      ]
+
+      await fetchStream({
+        body: {
+          messages,
+          model: 'gemini-3-flash-preview',
+          temperature: 0.5,
+          top_p: 1,
+          stream: true
+        },
+        type: 'openai',
+        apiKey: openaiApiKey,
+        abortController: controller,
+        onMessage: (data) => {
+          console.log('📨 [恢复任务] 收到数据:', JSON.stringify(data, null, 2))
+          if (data.choices && data.choices[0]?.delta?.content) {
+            const newContent = data.choices[0].delta.content
+            console.log('✏️ [恢复任务] 新内容:', newContent)
+            localResponse = localResponse + newContent
+            console.log('📝 [恢复任务] 累计内容长度:', localResponse.length)
+            setMessages(prev => {
+              const newMessages = [...prev]
+              newMessages[newMessages.length - 1].content = localResponse
+              return newMessages
+            })
+          } else if (data.choices && data.choices[0]?.message?.content) {
+            // 处理非流式响应
+            const fullContent = data.choices[0].message.content
+            console.log('📦 [恢复任务] 完整内容:', fullContent)
+            localResponse = fullContent
+            setMessages(prev => {
+              const newMessages = [...prev]
+              newMessages[newMessages.length - 1].content = localResponse
+              return newMessages
+            })
+          }
+        },
+        onError: (error) => {
+          console.error('Connection error:', error)
+          setLoading(false)
+          setAbortController(null)
+
+          // 如果有部分响应，显示给用户
+          if (localResponse && localResponse.length > 0) {
+            console.log('显示部分分析结果:', localResponse)
+          } else {
+            // 如果没有响应，显示错误消息
+            const errorMessage: Message = {
+              id: generateId(),
+              type: 'assistant',
+              content: `❌ 分析失败: ${error.message || '未知错误'}`,
+              createdAt: new Date().toISOString()
+            }
+            setMessages(prev => [...prev, errorMessage])
+          }
+
+          clearBackgroundTask()
+        },
+        onClose: async () => {
+          setLoading(false)
+          setAbortController(null)
+          await clearBackgroundTask()
+
+          // TODO: 暂时禁用效果图生成功能
+          // 生成效果图功能已禁用
+          try {
+            await historyService.saveRecord({
+              type: 'facial',
+              title: `面部分析 - ${task.requirement}`,
+              description: localResponse.substring(0, 100) + '...',
+              input_data: {
+                images: task.imageContents,
+                requirement: task.requirement,
+              },
+              output_data: {
+                analysis: localResponse,
+              },
+              feature: 'facial_design',
+            })
+          } catch (error) {
+            console.error('保存分析记录失败:', error)
+          }
+        }
+      })
+
+    } catch (error) {
+      console.error('恢复分析任务失败:', error)
+      setLoading(false)
+      setAbortController(null)
+      clearBackgroundTask()
+    }
+  }
+
+  // TODO: 暂时禁用效果图生成功能
+  // 恢复效果图生成任务 - 已禁用
+  const resumeImageGenerationTask = async (task: any) => {
+    // 功能已禁用
+    console.log('效果图生成功能已禁用')
+    setGeneratingImage(false)
+  }
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -239,6 +430,9 @@ export function FacialDesign() {
     setLoading(true)
     try {
       let localResponse = ''
+      const taskId = `analyze-${Date.now()}`
+      const controller = new AbortController()
+      setAbortController(controller)
 
       const prompt = `你是一位资深的面部美学设计专家，拥有15年以上的面部分析和美学设计经验。
 
@@ -310,7 +504,18 @@ export function FacialDesign() {
         })
       )
 
-      // 使用OpenAI gpt-5.1进行面部分析（支持图片输入和流式输出）
+      // 保存后台任务
+      await saveBackgroundTask({
+        id: taskId,
+        type: 'analyze',
+        prompt,
+        imageContents,
+        requirement,
+        partialResponse: localResponse,
+        timestamp: Date.now()
+      })
+
+      // 使用gemini-3-flash-preview进行面部分析（支持图片输入和流式输出）
       const messages = [
         {
           role: 'user' as const,
@@ -329,17 +534,50 @@ export function FacialDesign() {
         }
       ]
 
+      console.log('🚀 开始分析，图片数量:', imageContents.length)
+      console.log('🔑 API Key:', openaiApiKey.substring(0, 10) + '...')
+
       await fetchStream({
         body: {
           messages,
-          model: 'gpt-5.1',
+          model: 'gemini-3-flash-preview',
+          temperature: 0.5,
+          top_p: 1,
           stream: true
         },
         type: 'openai',
         apiKey: openaiApiKey,
+        abortController: controller,
         onMessage: (data) => {
+          console.log('📨 收到数据:', JSON.stringify(data, null, 2))
           if (data.choices && data.choices[0]?.delta?.content) {
-            localResponse = localResponse + data.choices[0].delta.content
+            const newContent = data.choices[0].delta.content
+            console.log('✏️ 新内容:', newContent)
+            localResponse = localResponse + newContent
+            console.log('📝 累计内容长度:', localResponse.length)
+            setMessages(prev => {
+              const newMessages = [...prev]
+              newMessages[newMessages.length - 1].content = localResponse
+              return newMessages
+            })
+
+            // 定期保存进度
+            if (localResponse.length % 500 === 0) {
+              saveBackgroundTask({
+                id: taskId,
+                type: 'analyze',
+                prompt,
+                imageContents,
+                requirement,
+                partialResponse: localResponse,
+                timestamp: Date.now()
+              })
+            }
+          } else if (data.choices && data.choices[0]?.message?.content) {
+            // 处理非流式响应
+            const fullContent = data.choices[0].message.content
+            console.log('📦 完整内容:', fullContent)
+            localResponse = fullContent
             setMessages(prev => {
               const newMessages = [...prev]
               newMessages[newMessages.length - 1].content = localResponse
@@ -350,9 +588,28 @@ export function FacialDesign() {
         onError: (error) => {
           console.error('Connection error:', error)
           setLoading(false)
+          setAbortController(null)
+
+          // 如果有部分响应，显示给用户
+          if (localResponse && localResponse.length > 0) {
+            console.log('显示部分分析结果:', localResponse)
+          } else {
+            // 如果没有响应，显示错误消息
+            const errorMessage: Message = {
+              id: generateId(),
+              type: 'assistant',
+              content: `❌ 分析失败: ${error.message || '未知错误'}`,
+              createdAt: new Date().toISOString()
+            }
+            setMessages(prev => [...prev, errorMessage])
+          }
+
+          clearBackgroundTask()
         },
         onClose: async () => {
           setLoading(false)
+          setAbortController(null)
+          await clearBackgroundTask()
 
           // OpenAI分析完成后，使用Gemini生成效果图
           try {
@@ -369,6 +626,15 @@ export function FacialDesign() {
               createdAt: new Date().toISOString()
             }
             setMessages(prev => [...prev, imagePromptMessage])
+
+            // 保存效果图生成任务
+            await saveBackgroundTask({
+              id: `image-${Date.now()}`,
+              type: 'image_generation',
+              imageContent: imageContents[0],
+              suggestions: `基于以下分析建议，请生成优化后的面部效果图：\n\n${localResponse}`,
+              timestamp: Date.now()
+            })
 
             // 使用Gemini生成效果图
             const imageResult = await apiService.generateComparisonImage(
@@ -393,6 +659,9 @@ export function FacialDesign() {
             }
             setMessages(prev => [...prev, finalImageMessage])
 
+            // 清除后台任务
+            await clearBackgroundTask()
+
             // 记录历史记录
             await historyService.saveRecord({
               type: 'facial',
@@ -416,6 +685,7 @@ export function FacialDesign() {
               newMessages[newMessages.length - 1].content = '⚠️ 效果图生成失败，但美学分析已完成。'
               return newMessages
             })
+            await clearBackgroundTask()
           } finally {
             setGeneratingImage(false)
           }
@@ -432,6 +702,8 @@ export function FacialDesign() {
       }
       setMessages(prev => [...prev, errorMessage])
       setLoading(false)
+      setAbortController(null)
+      await clearBackgroundTask()
     }
   }
 
@@ -522,7 +794,21 @@ export function FacialDesign() {
         {item.images && item.images.length > 0 && (
           <View style={styles.imageContainer}>
             {item.images.map((uri, index) => (
-              <Image key={index} source={{ uri }} style={styles.messageImage} />
+              <TouchableOpacity
+                key={index}
+                onLongPress={async () => {
+                  try {
+                    // 复制到剪贴板
+                    await Clipboard.setString(uri)
+                    Alert.alert('提示', '图片已复制到剪贴板')
+                  } catch (error) {
+                    Alert.alert('提示', '复制失败：' + error.message)
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                <Image source={{ uri }} style={styles.messageImage} />
+              </TouchableOpacity>
             ))}
           </View>
         )}
@@ -612,7 +898,7 @@ const getStyles = (theme: any) => StyleSheet.create({
   },
   messageContainer: {
     marginBottom: 16,
-    maxWidth: '85%',
+    maxWidth: '100%',
   },
   userMessage: {
     alignSelf: 'flex-end',

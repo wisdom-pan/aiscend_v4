@@ -8,16 +8,16 @@ export const DOMAIN = 'https://yunwu.ai/v1'
 
 // API Keys - 直接硬编码,避免环境变量在 release 模式下的问题
 export const API_KEYS = {
-  OPENAI: 'sk-7bW8PnA4sv9mt7ipJsNzkDDtYSOYlb60kusyzJmqaTo52zld',
-  GEMINI: 'sk-eZ4g8gRVzwUGrxDJScnzKiYF6ctQPq82DeDDYTpl5lA8qEfJ',
+  OPENAI: 'sk-ORS9JAXURvGyG3PqAZ3GzsKv8KQ1wJaDjhNM1NOY6eMMx5uM',
+  GEMINI: 'sk-ORS9JAXURvGyG3PqAZ3GzsKv8KQ1wJaDjhNM1NOY6eMMx5uM',
 }
 
 export const API_CONFIG = {
   BASE_URL: 'https://yunwu.ai/v1',
   OPENAI_API_URL: 'https://yunwu.ai/v1/chat/completions',
   GEMINI_API_URL: 'https://yunwu.ai/v1beta/models/gemini-3-pro-image-preview:generateContent',
-  OPENAI_MODEL: 'gpt-5.2',
-  GEMINI_MODEL: 'gemini-3-pro-image-preview',
+  OPENAI_MODEL: 'gemini-3-flash-preview',
+  GEMINI_MODEL: 'gemini-3-flash-preview',
 }
 
 export const MODELS = {
