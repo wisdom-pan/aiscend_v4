@@ -110,8 +110,14 @@ export function History() {
     )
   }
 
+  const handleRecordPress = (item: HistoryRecord) => {
+    // TODO: 实现查看历史记录详情的功能
+    console.log('点击了历史记录:', item.id)
+    // 这里可以导航到详情页面或显示详情模态框
+  }
+
   const renderRecordItem = ({ item }: { item: HistoryRecord }) => (
-    <TouchableOpacity style={styles.recordCard}>
+    <TouchableOpacity style={styles.recordCard} onPress={() => handleRecordPress(item)}>
       <View style={styles.recordHeader}>
         <View style={styles.recordTypeIcon}>
           {item.type === 'facial' && <Ionicons name="analytics" size={24} color={theme.primaryColor} />}
