@@ -37,7 +37,6 @@ const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9
 
 export function FacialDesign() {
   const [loading, setLoading] = useState(false)
-  const [generatingImage, setGeneratingImage] = useState(false)
   const [abortController, setAbortController] = useState<AbortController | null>(null)
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -64,7 +63,6 @@ export function FacialDesign() {
       setAbortController(null)
     }
     setLoading(false)
-    setGeneratingImage(false)
     clearBackgroundTask()
   }
 
@@ -131,8 +129,6 @@ export function FacialDesign() {
         // 恢复任务
         if (task.type === 'analyze') {
           await resumeAnalyzeTask(task)
-        } else if (task.type === 'image_generation') {
-          await resumeImageGenerationTask(task)
         }
       }
     } catch (error) {
@@ -284,13 +280,6 @@ export function FacialDesign() {
     }
   }
 
-  // TODO: 暂时禁用效果图生成功能
-  // 恢复效果图生成任务 - 已禁用
-  const resumeImageGenerationTask = async (task: any) => {
-    // 功能已禁用
-    console.log('效果图生成功能已禁用')
-    setGeneratingImage(false)
-  }
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -315,86 +304,6 @@ export function FacialDesign() {
       setMessages(prev => [...prev, userMessage])
       setInput('')
       analyzeImages(selectedImages, userMessage.content)
-    }
-  }
-
-  // 单独测试效果图生成功能
-  const testImageGeneration = async () => {
-    setGeneratingImage(true)
-    try {
-      // 添加测试提示
-      const testMessage: Message = {
-        id: generateId(),
-        type: 'assistant',
-        content: '🧪 正在测试Gemini效果图生成功能...',
-        createdAt: new Date().toISOString()
-      }
-      setMessages(prev => [...prev, testMessage])
-
-      // 设置Gemini API密钥
-      await apiService.setApiKeys(openaiApiKey, geminiApiKey)
-
-      // 使用示例图片和调整建议
-      const sampleImage = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCdABmX/9k='
-
-      const sampleAnalysis = `面部美学分析结果：
-1. 整体轮廓：脸型偏圆，建议通过发型修饰增加线条感
-2. 皮肤状态：皮肤光滑，略有毛孔粗大，建议使用收缩毛孔的产品
-3. 眼部：眼形好看，建议保持现状
-4. 鼻部：鼻梁挺直，形态良好
-5. 唇部：唇形饱满，建议使用保湿产品保持
-
-建议调整：
-1. 改善皮肤质感，减少毛孔
-2. 增强面部轮廓线条
-3. 提升整体气质和自信`
-
-      const imageResult = await apiService.generateComparisonImage(
-        sampleImage,
-        sampleAnalysis
-      )
-
-      // 更新测试消息
-      setMessages(prev => {
-        const newMessages = [...prev]
-        newMessages[newMessages.length - 1].content = '✅ 测试成功！效果图已生成'
-        return newMessages
-      })
-
-      // 添加包含效果图的最终消息
-      const finalImageMessage: Message = {
-        id: generateId(),
-        type: 'assistant',
-        content: '🎨 Gemini效果图测试结果',
-        images: [imageResult],
-        createdAt: new Date().toISOString()
-      }
-      setMessages(prev => [...prev, finalImageMessage])
-
-      // 记录测试历史
-      await historyService.saveRecord({
-        type: 'facial',
-        title: 'Gemini API 测试',
-        description: 'Gemini API效果图生成测试',
-        input_data: {
-          sampleImage,
-          sampleAnalysis
-        },
-        output_data: {
-          generatedImage: imageResult,
-        },
-        feature: 'facial_design',
-      })
-
-    } catch (error) {
-      console.error('测试效果图生成失败:', error)
-      setMessages(prev => {
-        const newMessages = [...prev]
-        newMessages[newMessages.length - 1].content = `❌ 测试失败: ${error.message}`
-        return newMessages
-      })
-    } finally {
-      setGeneratingImage(false)
     }
   }
 
@@ -611,58 +520,8 @@ export function FacialDesign() {
           setAbortController(null)
           await clearBackgroundTask()
 
-          // OpenAI分析完成后，使用Gemini生成效果图
+          // 分析完成，记录历史记录
           try {
-            setGeneratingImage(true)
-
-            // 设置Gemini API密钥
-            await apiService.setApiKeys(openaiApiKey, geminiApiKey)
-
-            // 添加效果图生成提示
-            const imagePromptMessage: Message = {
-              id: generateId(),
-              type: 'assistant',
-              content: '🎨 正在为您生成面部调整效果图...',
-              createdAt: new Date().toISOString()
-            }
-            setMessages(prev => [...prev, imagePromptMessage])
-
-            // 保存效果图生成任务
-            await saveBackgroundTask({
-              id: `image-${Date.now()}`,
-              type: 'image_generation',
-              imageContent: imageContents[0],
-              suggestions: `基于以下分析建议，请生成优化后的面部效果图：\n\n${localResponse}`,
-              timestamp: Date.now()
-            })
-
-            // 使用Gemini生成效果图
-            const imageResult = await apiService.generateComparisonImage(
-              imageContents[0], // 使用第一张图片作为参考
-              `基于以下分析建议，请生成优化后的面部效果图：\n\n${localResponse}`
-            )
-
-            // 更新效果图消息
-            setMessages(prev => {
-              const newMessages = [...prev]
-              newMessages[newMessages.length - 1].content = '🎨 面部调整效果图已生成！'
-              return newMessages
-            })
-
-            // 添加包含效果图的最终消息
-            const finalImageMessage: Message = {
-              id: generateId(),
-              type: 'assistant',
-              content: '✨ 效果图已完成！',
-              images: [imageResult],
-              createdAt: new Date().toISOString()
-            }
-            setMessages(prev => [...prev, finalImageMessage])
-
-            // 清除后台任务
-            await clearBackgroundTask()
-
-            // 记录历史记录
             await historyService.saveRecord({
               type: 'facial',
               title: `面部分析 - ${requirement}`,
@@ -673,21 +532,11 @@ export function FacialDesign() {
               },
               output_data: {
                 analysis: localResponse,
-                generatedImage: imageResult,
               },
               feature: 'facial_design',
             })
-
-          } catch (imageError) {
-            console.error('效果图生成失败:', imageError)
-            setMessages(prev => {
-              const newMessages = [...prev]
-              newMessages[newMessages.length - 1].content = '⚠️ 效果图生成失败，但美学分析已完成。'
-              return newMessages
-            })
-            await clearBackgroundTask()
-          } finally {
-            setGeneratingImage(false)
+          } catch (error) {
+            console.error('保存分析记录失败:', error)
           }
         }
       })
@@ -837,26 +686,16 @@ export function FacialDesign() {
         scrollEnabled={true}
       />
 
-      {(loading || generatingImage) && (
+      {loading && (
         <View style={styles.loadingContainer}>
           <ActivityIndicator color={theme.primaryColor} />
-          <Text style={styles.loadingText}>
-            {generatingImage ? '🎨 AI正在生成效果图...' : 'AI正在分析中...'}
-          </Text>
+          <Text style={styles.loadingText}>AI正在分析中...</Text>
           <TouchableOpacity style={styles.stopButton} onPress={stopResponse}>
             <Ionicons name="stop-circle" size={20} color="#fff" />
             <Text style={styles.stopButtonText}>停止</Text>
           </TouchableOpacity>
         </View>
       )}
-
-      {/* 测试按钮 */}
-      <View style={styles.testButtonContainer}>
-        <TouchableOpacity style={styles.testButton} onPress={testImageGeneration}>
-          <Ionicons name="flask" size={16} color="#fff" />
-          <Text style={styles.testButtonText}>测试效果图生成</Text>
-        </TouchableOpacity>
-      </View>
 
       <View style={styles.inputContainer}>
         <TouchableOpacity style={styles.imageButton} onPress={takePhoto}>
@@ -980,30 +819,6 @@ const getStyles = (theme: any) => StyleSheet.create({
     color: theme.placeholderColor,
     fontSize: 14,
     marginBottom: 8,
-  },
-  testButtonContainer: {
-    padding: 12,
-    paddingBottom: 0,
-    alignItems: 'center',
-  },
-  testButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#6C5CE7',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 25,
-    gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  testButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
   },
   stopButton: {
     flexDirection: 'row',
