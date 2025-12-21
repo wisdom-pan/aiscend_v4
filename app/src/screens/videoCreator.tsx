@@ -134,8 +134,12 @@ export function VideoCreator() {
         },
         onMessage: (data) => {
           try {
+            console.log('📨 收到数据:', JSON.stringify(data, null, 2))
             if (data.choices && data.choices[0]?.delta?.content) {
-              localResponse += data.choices[0].delta.content
+              const newContent = data.choices[0].delta.content
+              console.log('✏️ 新内容:', newContent)
+              localResponse += newContent
+              console.log('📝 累计内容长度:', localResponse.length)
               setGeneratedScript(localResponse)
             }
           } catch (error) {
@@ -156,19 +160,8 @@ export function VideoCreator() {
             await historyService.saveRecord({
               type: 'video',
               title: `${mode === 'create' ? '原创' : '优化'}脚本 - ${mode === 'create' ? topic : '脚本优化'}`,
-              description: `${PLATFORMS.find(p => p.key === platform)?.label} / ${style || '默认风格'}`,
-              input_data: {
-                mode,
-                topic,
-                platform,
-                style,
-                originalScript: mode === 'rewrite' ? originalScript : undefined,
-                optimizationNeeds: mode === 'rewrite' ? optimizationNeeds : undefined,
-              },
-              output_data: {
-                script: localResponse,
-              },
-              feature: 'video_creator',
+              prompt: `平台：${PLATFORMS.find(p => p.key === platform)?.label}\n风格：${style || '默认风格'}\n模式：${mode === 'create' ? '原创' : '优化'}`,
+              result: localResponse,
             })
           } catch (historyError) {
             console.error('Failed to save history:', historyError)

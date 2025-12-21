@@ -256,15 +256,8 @@ export function FacialDesign() {
             await historyService.saveRecord({
               type: 'facial',
               title: `面部分析 - ${task.requirement}`,
-              description: localResponse.substring(0, 100) + '...',
-              input_data: {
-                images: task.imageContents,
-                requirement: task.requirement,
-              },
-              output_data: {
-                analysis: localResponse,
-              },
-              feature: 'facial_design',
+              prompt: `需求：${task.requirement}\n图片数量：${task.imageContents.length}`,
+              result: localResponse,
             })
           } catch (error) {
             console.error('保存分析记录失败:', error)
@@ -464,11 +457,18 @@ export function FacialDesign() {
             console.log('✏️ 新内容:', newContent)
             localResponse = localResponse + newContent
             console.log('📝 累计内容长度:', localResponse.length)
+
+            // 强制立即更新UI
             setMessages(prev => {
               const newMessages = [...prev]
               newMessages[newMessages.length - 1].content = localResponse
               return newMessages
             })
+
+            // 强制触发UI重绘（防止批量更新合并）
+            setTimeout(() => {
+              setMessages(current => [...current])
+            }, 0)
 
             // 定期保存进度
             if (localResponse.length % 500 === 0) {
@@ -525,15 +525,8 @@ export function FacialDesign() {
             await historyService.saveRecord({
               type: 'facial',
               title: `面部分析 - ${requirement}`,
-              description: localResponse.substring(0, 100) + '...',
-              input_data: {
-                images: imageContents,
-                requirement,
-              },
-              output_data: {
-                analysis: localResponse,
-              },
-              feature: 'facial_design',
+              prompt: `需求：${requirement}\n图片数量：${imageContents.length}`,
+              result: localResponse,
             })
           } catch (error) {
             console.error('保存分析记录失败:', error)
@@ -606,13 +599,31 @@ export function FacialDesign() {
         type: eventSourceArgs.type,
         apiKey: eventSourceArgs.apiKey,
         onMessage: (data) => {
+          console.log('📨 收到数据:', JSON.stringify(data, null, 2))
           if (data.choices && data.choices[0]?.delta?.content) {
-            localResponse = localResponse + data.choices[0].delta.content
+            const newContent = data.choices[0].delta.content
+            console.log('✏️ 新内容:', newContent)
+            localResponse = localResponse + newContent
+            console.log('📝 累计内容长度:', localResponse.length)
+
+            // 强制立即更新UI
             setMessages(prev => {
               const newMessages = [...prev]
               newMessages[newMessages.length - 1].content = localResponse
               return newMessages
             })
+
+            // 强制触发UI重绘（防止批量更新合并）
+            setTimeout(() => {
+              setMessages(current => [...current])
+            }, 0)
+
+            // 定期保存进度
+            if (localResponse.length % 500 === 0) {
+              historyService.updateRecord(assistantMessage.id, {
+                title: localResponse.substring(0, 50) + '...'
+              }).catch(console.error)
+            }
           }
         },
         onError: (error) => {

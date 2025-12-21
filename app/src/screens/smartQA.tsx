@@ -135,8 +135,12 @@ export function SmartQA() {
         },
         onMessage: (data) => {
           try {
+            console.log('📨 收到数据:', JSON.stringify(data, null, 2))
             if (data.choices && data.choices[0]?.delta?.content) {
-              localResponse += data.choices[0].delta.content
+              const newContent = data.choices[0].delta.content
+              console.log('✏️ 新内容:', newContent)
+              localResponse += newContent
+              console.log('📝 累计内容长度:', localResponse.length)
               // 实时更新显示（流式输出效果）
               setReplyOptions([
                 {
@@ -164,16 +168,8 @@ export function SmartQA() {
             await historyService.saveRecord({
               type: 'qa',
               title: `智能问答 - ${question.substring(0, 20)}...`,
-              description: `${scenario} / ${style}`,
-              input_data: {
-                question,
-                scenario,
-                style,
-              },
-              output_data: {
-                responses: localResponse,
-              },
-              feature: 'smart_qa',
+              prompt: `问题：${question}\n场景：${scenario}\n风格：${style}`,
+              result: localResponse,
             })
           } catch (historyError) {
             console.error('Failed to save history:', historyError)

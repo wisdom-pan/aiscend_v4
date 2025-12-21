@@ -86,6 +86,19 @@ export class HistoryService {
     return filtered
   }
 
+  async updateRecord(id: string, updates: Partial<Pick<HistoryRecord, 'title' | 'prompt'>>): Promise<void> {
+    try {
+      const history = await this.getHistory()
+      const updatedHistory = history.map(record =>
+        record.id === id ? { ...record, ...updates } : record
+      )
+      await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(updatedHistory))
+    } catch (error) {
+      console.error('Error updating record:', error)
+      throw error
+    }
+  }
+
   async deleteRecord(id: string): Promise<void> {
     try {
       const history = await this.getHistory()
