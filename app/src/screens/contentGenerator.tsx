@@ -332,11 +332,36 @@ export function ContentGenerator() {
             <View key={index} style={styles.contentCard}>
               <Text style={styles.contentText}>{content}</Text>
               <View style={styles.contentActions}>
-                <TouchableOpacity style={styles.actionBtn}>
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={async () => {
+                    try {
+                      await Clipboard.setStringAsync(content)
+                      Alert.alert('提示', '内容已复制到剪贴板')
+                    } catch (error) {
+                      Alert.alert('提示', '复制失败：' + error.message)
+                    }
+                  }}
+                >
                   <Ionicons name="copy-outline" size={20} color={theme.primaryColor} />
                   <Text style={styles.actionBtnText}>复制</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.actionBtn}>
+                <TouchableOpacity
+                  style={styles.actionBtn}
+                  onPress={async () => {
+                    try {
+                      await historyService.saveRecord({
+                        type: 'content',
+                        title: `文案收藏 - ${keywords}`,
+                        prompt: `关键词：${keywords}\n人设：${persona}\n风格：${style}`,
+                        result: content,
+                      })
+                      Alert.alert('提示', '已收藏到历史记录')
+                    } catch (error) {
+                      Alert.alert('提示', '收藏失败：' + error.message)
+                    }
+                  }}
+                >
                   <Ionicons name="heart-outline" size={20} color={theme.primaryColor} />
                   <Text style={styles.actionBtnText}>收藏</Text>
                 </TouchableOpacity>

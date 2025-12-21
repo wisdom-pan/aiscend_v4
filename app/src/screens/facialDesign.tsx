@@ -31,6 +31,7 @@ interface Message {
   content: string
   images?: string[]
   createdAt: string
+  isComplete?: boolean  // 标记消息是否已完成（用于控制操作按钮显示）
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -43,7 +44,8 @@ export function FacialDesign() {
       id: generateId(),
       type: 'assistant',
       content: '您好！我是AI面部美学设计师。请上传您的照片（建议3张：正面、侧面45度、侧面90度），并告诉我您的需求，我将为您提供专业的美学分析和建议。',
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      isComplete: true
     }
   ])
   const [input, setInput] = useState('')
@@ -167,7 +169,8 @@ export function FacialDesign() {
         id: generateId(),
         type: 'assistant',
         content: localResponse,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        isComplete: false  // 初始时未完成
       }
 
       setMessages(prev => [...prev, assistantMessage])
@@ -229,6 +232,16 @@ export function FacialDesign() {
           setLoading(false)
           setAbortController(null)
 
+          // 将最后一条助手消息标记为完成（即使是错误）
+          setMessages(prev => {
+            const newMessages = [...prev]
+            const lastIndex = newMessages.length - 1
+            if (lastIndex >= 0 && newMessages[lastIndex].type === 'assistant') {
+              newMessages[lastIndex] = { ...newMessages[lastIndex], isComplete: true }
+            }
+            return newMessages
+          })
+
           // 如果有部分响应，显示给用户
           if (localResponse && localResponse.length > 0) {
             console.log('显示部分分析结果:', localResponse)
@@ -238,7 +251,8 @@ export function FacialDesign() {
               id: generateId(),
               type: 'assistant',
               content: `❌ 分析失败: ${error.message || '未知错误'}`,
-              createdAt: new Date().toISOString()
+              createdAt: new Date().toISOString(),
+              isComplete: true
             }
             setMessages(prev => [...prev, errorMessage])
           }
@@ -249,6 +263,16 @@ export function FacialDesign() {
           setLoading(false)
           setAbortController(null)
           await clearBackgroundTask()
+
+          // 将最后一条助手消息标记为完成
+          setMessages(prev => {
+            const newMessages = [...prev]
+            const lastIndex = newMessages.length - 1
+            if (lastIndex >= 0 && newMessages[lastIndex].type === 'assistant') {
+              newMessages[lastIndex] = { ...newMessages[lastIndex], isComplete: true }
+            }
+            return newMessages
+          })
 
           // TODO: 暂时禁用效果图生成功能
           // 生成效果图功能已禁用
@@ -291,7 +315,8 @@ export function FacialDesign() {
         type: 'user',
         content: input || '请分析我的照片',
         images: selectedImages,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        isComplete: true
       }
 
       setMessages(prev => [...prev, userMessage])
@@ -386,7 +411,8 @@ export function FacialDesign() {
         id: generateId(),
         type: 'assistant',
         content: '',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        isComplete: false  // 初始时未完成
       }
 
       setMessages(prev => [...prev, assistantMessage])
@@ -499,6 +525,16 @@ export function FacialDesign() {
           setLoading(false)
           setAbortController(null)
 
+          // 将最后一条助手消息标记为完成（即使是错误）
+          setMessages(prev => {
+            const newMessages = [...prev]
+            const lastIndex = newMessages.length - 1
+            if (lastIndex >= 0 && newMessages[lastIndex].type === 'assistant') {
+              newMessages[lastIndex] = { ...newMessages[lastIndex], isComplete: true }
+            }
+            return newMessages
+          })
+
           // 如果有部分响应，显示给用户
           if (localResponse && localResponse.length > 0) {
             console.log('显示部分分析结果:', localResponse)
@@ -508,7 +544,8 @@ export function FacialDesign() {
               id: generateId(),
               type: 'assistant',
               content: `❌ 分析失败: ${error.message || '未知错误'}`,
-              createdAt: new Date().toISOString()
+              createdAt: new Date().toISOString(),
+              isComplete: true
             }
             setMessages(prev => [...prev, errorMessage])
           }
@@ -519,6 +556,16 @@ export function FacialDesign() {
           setLoading(false)
           setAbortController(null)
           await clearBackgroundTask()
+
+          // 将最后一条助手消息标记为完成
+          setMessages(prev => {
+            const newMessages = [...prev]
+            const lastIndex = newMessages.length - 1
+            if (lastIndex >= 0 && newMessages[lastIndex].type === 'assistant') {
+              newMessages[lastIndex] = { ...newMessages[lastIndex], isComplete: true }
+            }
+            return newMessages
+          })
 
           // 分析完成，记录历史记录
           try {
@@ -540,7 +587,8 @@ export function FacialDesign() {
         id: generateId(),
         type: 'assistant',
         content: '抱歉，分析过程中出现了错误。请重试或联系客服。',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        isComplete: true
       }
       setMessages(prev => [...prev, errorMessage])
       setLoading(false)
@@ -556,7 +604,8 @@ export function FacialDesign() {
       id: generateId(),
       type: 'user',
       content: input,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      isComplete: true
     }
 
     setMessages(prev => [...prev, userMessage])
@@ -589,7 +638,8 @@ export function FacialDesign() {
         id: generateId(),
         type: 'assistant',
         content: '',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        isComplete: false  // 初始时未完成
       }
 
       setMessages(prev => [...prev, assistantMessage])
@@ -629,9 +679,29 @@ export function FacialDesign() {
         onError: (error) => {
           console.error('Connection error:', error)
           setLoading(false)
+
+          // 将最后一条助手消息标记为完成（即使是错误）
+          setMessages(prev => {
+            const newMessages = [...prev]
+            const lastIndex = newMessages.length - 1
+            if (lastIndex >= 0 && newMessages[lastIndex].type === 'assistant') {
+              newMessages[lastIndex] = { ...newMessages[lastIndex], isComplete: true }
+            }
+            return newMessages
+          })
         },
         onClose: () => {
           setLoading(false)
+
+          // 将最后一条助手消息标记为完成
+          setMessages(prev => {
+            const newMessages = [...prev]
+            const lastIndex = newMessages.length - 1
+            if (lastIndex >= 0 && newMessages[lastIndex].type === 'assistant') {
+              newMessages[lastIndex] = { ...newMessages[lastIndex], isComplete: true }
+            }
+            return newMessages
+          })
         }
       })
 
@@ -641,7 +711,8 @@ export function FacialDesign() {
         id: generateId(),
         type: 'assistant',
         content: '抱歉，发送过程中出现了错误。请重试或联系客服。',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        isComplete: true
       }
       setMessages(prev => [...prev, errorMessage])
       setLoading(false)
@@ -679,6 +750,60 @@ export function FacialDesign() {
             <Text style={styles.messageText}>{item.content}</Text>
           )}
         </View>
+
+        {/* 操作按钮 - 只在消息完成时显示 */}
+        {item.type === 'assistant' && item.isComplete && (
+          <View style={styles.messageActions}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={async () => {
+                try {
+                  await Clipboard.setStringAsync(item.content)
+                  Alert.alert('提示', '分析结果已复制到剪贴板')
+                } catch (error) {
+                  Alert.alert('提示', '复制失败：' + error.message)
+                }
+              }}
+            >
+              <Ionicons name="copy-outline" size={18} color="#666" />
+              <Text style={styles.actionBtnText}>复制</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={async () => {
+                try {
+                  await historyService.saveRecord({
+                    type: 'analysis',
+                    title: item.content.substring(0, 30) + '...',
+                    prompt: '面部分析结果',
+                    result: item.content,
+                  })
+                  Alert.alert('提示', '已收藏到历史记录')
+                } catch (error) {
+                  Alert.alert('提示', '收藏失败：' + error.message)
+                }
+              }}
+            >
+              <Ionicons name="bookmark-outline" size={18} color="#666" />
+              <Text style={styles.actionBtnText}>收藏</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => {
+                // 重试功能 - 重新发送最后一条用户消息
+                const lastUserMessage = messages.filter(m => m.type === 'user').pop()
+                if (lastUserMessage) {
+                  setInput(lastUserMessage.content)
+                  setMessages(messages.filter(m => m.id !== item.id))
+                  handleSend()
+                }
+              }}
+            >
+              <Ionicons name="refresh-outline" size={18} color="#666" />
+              <Text style={styles.actionBtnText}>重试</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     )
   }
@@ -881,5 +1006,24 @@ const getStyles = (theme: any) => StyleSheet.create({
     backgroundColor: theme.primaryColor,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  messageActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 8,
+    gap: 12,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderRadius: 12,
+  },
+  actionBtnText: {
+    fontSize: 12,
+    color: '#666',
   },
 })
