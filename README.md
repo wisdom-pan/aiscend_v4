@@ -226,4 +226,10 @@ adb logcat | grep -E "(API Configuration Debug|API Key|Request URL|Request heade
 
 ```
 
-adb logcat -c && adb logcat | grep -E "=== API Keys Debug ===|OpenAI Key:|Gemini Key:|API Key added to headers|No API Key provided"
+
+```bash
+adb -s 192.168.1.2:40457 logcat | grep -E "(ReactNative|fetchStream|reasoning_content|content)"
+
+adb -s 10.17.11.44:40371 logcat -d | grep -E "(body.stream|response.body|Stream mode)"
+
+```
