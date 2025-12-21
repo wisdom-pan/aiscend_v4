@@ -217,12 +217,6 @@ var options = {
                {
                   "text": "'Hi, This is a picture of me. Can you add a llama next to me"
                },
-               {
-                  "inline_data": {
-                     "mime_type": "image/jpeg",
-                     "data": "iVBORw0KGgoAAAANSUhEUgAABAAAAAKoCAIAAABm4BptAAAAiXpUWHRSYXcgcHJvZmlsZSB0eXBlIGlwdGMAAAiZTYwxDgIxDAT7"
-                  }
-               }
             ]
          }
       ],
@@ -233,7 +227,7 @@ var options = {
          ],
          "imageConfig": {
             "aspectRatio": "9:16",
-            "imageSize": "4K"
+            "imageSize": "2K"
          }
       }
    })
@@ -243,6 +237,44 @@ request(options, function (error, response) {
    if (error) throw new Error(error);
    console.log(response.body);
 });
+
+```
+
+```js
+var myHeaders = new Headers();
+myHeaders.append("Authorization", "Bearer <token>");
+myHeaders.append("Content-Type", "application/json");
+
+var raw = JSON.stringify({
+   "contents": [
+      {
+         "role": "user",
+         "parts": [
+            {
+               "text": "Hi, can you create a 3d rendered image of a pig with wings and a top hat flying over a happy futuristic scifi city with lots of greenery?"
+            }
+         ]
+      }
+   ],
+   "generationConfig": {
+      "responseModalities": [
+         "TEXT",
+         "IMAGE"
+      ]
+   }
+});
+
+var requestOptions = {
+   method: 'POST',
+   headers: myHeaders,
+   body: raw,
+   redirect: 'follow'
+};
+
+fetch("https://yunwu.ai/v1beta/models/gemini-3-pro-image-preview:generateContent?key=", requestOptions)
+   .then(response => response.text())
+   .then(result => console.log(result))
+   .catch(error => console.log('error', error));
 
 ```
 
@@ -334,3 +366,105 @@ request(options, function (error, response) {
   CMAKE_SYSTEM_VERSION = 23
   2. 使用 NDK 26.1.10909125
   3. 配置了 minSdkVersion = 23
+
+
+adb -s 192.168.1.3:33655 logcat -d | grep -E "(25713|Running "main|ApiService initialized)"
+
+curl --location --request POST 'https://yunwu.ai/v1/chat/completions' \
+--header 'Accept: application/json' \
+--header 'Authorization: Bearer sk-ORS9JAXURvGyG3PqAZ3GzsKv8KQ1wJaDjhNM1NOY6eMMx5uM' \
+--header 'Content-Type: application/json' \
+--data-raw '{
+  "model": "gemini-3-flash-preview",
+  "stream": true,
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "这张图片是什么"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "https://github.com/dianping/cat/raw/master/cat-home/src/main/webapp/images/logo/cat_logo03.png"
+          }
+        }
+      ]
+    }
+  ],
+  "temperature": 0.1,
+  "max_tokens": 400
+}'
+
+curl --location --request POST 'https://yunwu.ai/v1/chat/completions' \
+--header 'Accept: application/json' \
+--header 'Authorization: Bearer sk-ORS9JAXURvGyG3PqAZ3GzsKv8KQ1wJaDjhNM1NOY6eMMx5uM' \
+--header 'Content-Type: application/json' \
+--data-raw '{
+  "max_tokens": 4096,
+  "model": "gemini-3-pro-image-preview",
+
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "主题风格改成红色"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAyAAAAJYCAYAAACadoJwAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAgA"
+          }
+        }
+      ]
+    }
+  ]
+}'
+
+
+var myHeaders = new Headers();
+myHeaders.append("Accept", "application/json");
+myHeaders.append("Authorization", "Bearer sk-ORS9JAXURvGyG3PqAZ3GzsKv8KQ1wJaDjhNM1NOY6eMMx5uM");
+myHeaders.append("Content-Type", "application/json");
+
+var raw = JSON.stringify({
+   "max_tokens": 4096,
+   "model": "gemini-3-flash-preview",
+   "messages": [
+      {
+         "role": "user",
+         "content": [
+            {
+               "type": "text",
+               "text": "这个图片神意思"
+            },
+            {
+               "type": "image_url",
+               "image_url": {
+                  "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAyAAAAJYCAYAAACadoJwAAAACXBIWXMAAA7EAAAOxAGVKw4"
+               }
+            }
+         ]
+      }
+   ]
+});
+
+var requestOptions = {
+   method: 'POST',
+   headers: myHeaders,
+   body: raw,
+   redirect: 'follow'
+};
+
+fetch("https://yunwu.ai/v1/chat/completions", requestOptions)
+   .then(response => response.text())
+   .then(result => console.log(result))
+   .catch(error => console.log('error', error));
+
+
+adb -s 10.17.11.44:40371 logcat | grep -E  "FATAL|AndroidRuntime|ReactNativeJS"
+   
