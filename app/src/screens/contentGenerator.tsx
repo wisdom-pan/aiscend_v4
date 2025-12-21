@@ -126,7 +126,7 @@ export function ContentGenerator() {
               content: `关键词：${keywords}`
             }
           ],
-          model: 'gpt-5.1',
+          model: 'gemini-3-flash-preview',
           stream: true
         },
         type: 'openai',
@@ -136,10 +136,15 @@ export function ContentGenerator() {
         },
         onMessage: (data) => {
           try {
-            if (data.choices && data.choices[0]?.delta?.content) {
-              localResponse += data.choices[0].delta.content
+            // 优先使用 reasoning_content（思维链思考），其次使用 content（最终输出）
+            const content = data.choices?.[0]?.delta?.reasoning_content ||
+                           data.choices?.[0]?.delta?.content || ''
+
+            if (content) {
+              localResponse += content
               // 实时更新显示（流式输出效果）
               setGeneratedContents([localResponse])
+              console.log('🧠 收到思维链片段:', content)
             }
           } catch (error) {
             console.error('Failed to parse stream data:', error)
@@ -159,17 +164,8 @@ export function ContentGenerator() {
             await historyService.saveRecord({
               type: 'content',
               title: `文案生成 - ${keywords}`,
-              description: `${selectedPersonaObj?.label} / ${selectedStyleObj?.label}`,
-              input_data: {
-                keywords,
-                persona: selectedPersonaObj?.label,
-                style: selectedStyleObj?.label,
-                wordCount,
-              },
-              output_data: {
-                content: localResponse,
-              },
-              feature: 'content_generator',
+              prompt: `关键词：${keywords}\n人设：${selectedPersonaObj?.label}\n风格：${selectedStyleObj?.label}`,
+              result: localResponse,
             })
           } catch (historyError) {
             console.error('Failed to save history:', historyError)

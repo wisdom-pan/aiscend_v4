@@ -5,6 +5,9 @@ import {
   ScrollView,
   TouchableOpacity,
   FlatList,
+  TextInput,
+  Modal,
+  Alert,
 } from 'react-native'
 import { useState, useEffect, useContext } from 'react'
 import { ThemeContext } from '../context'
@@ -16,6 +19,10 @@ export function History() {
   const [stats, setStats] = useState<UsageStats | null>(null)
   const [history, setHistory] = useState<HistoryRecord[]>([])
   const [selectedTab, setSelectedTab] = useState<'overview' | 'records'>('overview')
+  const [editModalVisible, setEditModalVisible] = useState(false)
+  const [selectedRecord, setSelectedRecord] = useState<HistoryRecord | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editPrompt, setEditPrompt] = useState('')
   const { theme } = useContext(ThemeContext)
   const styles = getStyles(theme)
 
@@ -111,9 +118,63 @@ export function History() {
   }
 
   const handleRecordPress = (item: HistoryRecord) => {
-    // TODO: 实现查看历史记录详情的功能
-    console.log('点击了历史记录:', item.id)
-    // 这里可以导航到详情页面或显示详情模态框
+    setSelectedRecord(item)
+    setEditTitle(item.title)
+    setEditPrompt(item.prompt)
+    setEditModalVisible(true)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!selectedRecord) return
+
+    try {
+      await historyService.updateRecord(selectedRecord.id, {
+        title: editTitle,
+        prompt: editPrompt,
+      })
+
+      // 更新本地状态
+      setHistory(history.map(item =>
+        item.id === selectedRecord.id
+          ? { ...item, title: editTitle, prompt: editPrompt }
+          : item
+      ))
+
+      setEditModalVisible(false)
+      Alert.alert('成功', '记录已更新')
+    } catch (error) {
+      console.error('Error updating record:', error)
+      Alert.alert('错误', '更新失败，请重试')
+    }
+  }
+
+  const handleDeleteRecord = async () => {
+    if (!selectedRecord) return
+
+    Alert.alert(
+      '确认删除',
+      '确定要删除这条记录吗？此操作不可恢复。',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '删除',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await historyService.deleteRecord(selectedRecord.id)
+
+              // 更新本地状态
+              setHistory(history.filter(item => item.id !== selectedRecord.id))
+              setEditModalVisible(false)
+              Alert.alert('成功', '记录已删除')
+            } catch (error) {
+              console.error('Error deleting record:', error)
+              Alert.alert('错误', '删除失败，请重试')
+            }
+          }
+        }
+      ]
+    )
   }
 
   const renderRecordItem = ({ item }: { item: HistoryRecord }) => (
@@ -204,6 +265,57 @@ export function History() {
       </View>
 
       {selectedTab === 'overview' ? renderOverview() : renderRecords()}
+
+      {/* 编辑模态框 */}
+      <Modal
+        visible={editModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setEditModalVisible(false)}>
+              <Text style={styles.modalCancel}>取消</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>编辑记录</Text>
+            <TouchableOpacity onPress={handleSaveEdit}>
+              <Text style={styles.modalSave}>保存</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>标题</Text>
+              <TextInput
+                style={styles.textInput}
+                value={editTitle}
+                onChangeText={setEditTitle}
+                placeholder="输入标题"
+                placeholderTextColor={theme.placeholderColor}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>内容</Text>
+              <TextInput
+                style={[styles.textInput, styles.multilineInput]}
+                value={editPrompt}
+                onChangeText={setEditPrompt}
+                placeholder="输入内容"
+                placeholderTextColor={theme.placeholderColor}
+                multiline
+                numberOfLines={6}
+                textAlignVertical="top"
+              />
+            </View>
+
+            <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteRecord}>
+              <Ionicons name="trash-outline" size={20} color="#fff" />
+              <Text style={styles.deleteButtonText}>删除记录</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   )
 }

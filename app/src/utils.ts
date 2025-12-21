@@ -1,21 +1,7 @@
-import { DOMAIN } from '../constants'
-import { Model } from '../types'
-
-// 检查是否支持ReadableStream
-function supportsReadableStream(): boolean {
-  try {
-    return typeof ReadableStream !== 'undefined' &&
-           typeof ReadableStream.prototype.getReader === 'function'
-  } catch (e) {
-    return false
-  }
-}
-
-// 支持流式输出的fetch函数
+// React Native 标准fetch API请求（流式响应）
 export async function fetchStream({
   headers,
   body,
-  type,
   apiKey,
   onMessage,
   onError,
@@ -26,7 +12,6 @@ export async function fetchStream({
 }: {
   headers?: any,
   body: any,
-  type: string,
   apiKey?: string,
   onMessage?: (data: any) => void,
   onError?: (error: any) => void,
@@ -35,154 +20,99 @@ export async function fetchStream({
   abortController?: AbortController | null,
   timeout?: number
 }) {
-  const apiUrl = `${DOMAIN}/chat/completions`
+  // 使用云端API地址
+  const apiUrl = "https://yunwu.ai/v1/chat/completions"
 
   // 构建请求头
   const requestHeaders: any = {
+    'Accept': body.stream ? 'text/event-stream' : 'application/json',
+    'Authorization': `Bearer ${apiKey || 'sk-ORS9JAXURvGyG3PqAZ3GzsKv8KQ1wJaDjhNM1NOY6eMMx5uM'}`,
     'Content-Type': 'application/json',
-    'Accept': 'application/json',
     ...headers
   }
 
-  // 如果提供了 API key，添加 Authorization header
+  // 如果提供了 API key，使用它；否则使用默认值
   if (apiKey) {
     requestHeaders['Authorization'] = `Bearer ${apiKey}`
     console.log('✅ API Key added to headers:', apiKey.substring(0, 10) + '...')
   } else {
-    console.log('❌ No API Key provided to fetchStream')
+    console.log('❌ No API Key provided, using default')
   }
 
   console.log('Request URL:', apiUrl)
   console.log('Request headers:', JSON.stringify(requestHeaders, null, 2))
   console.log('Timeout:', timeout, 'ms')
+  console.log('Stream mode:', body.stream ? 'ENABLED' : 'DISABLED')
+
+  if (onOpen) onOpen()
+
+  // 使用 AbortController 控制超时
+  const controller = abortController || new AbortController()
+  const timeoutId = setTimeout(() => {
+    controller.abort()
+    if (onClose) onClose()
+  }, timeout)
 
   try {
-    // 创建超时控制器
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort('timeout'), timeout)
-
-    // 合并两个信号源
-    const combinedSignal = new AbortController()
-    const signals = [controller.signal, abortController?.signal].filter(Boolean)
-    if (signals.length > 0) {
-      signals.forEach(signal => {
-        signal.addEventListener('abort', () => combinedSignal.abort(signal.reason))
-      })
-    }
-
     const response = await fetch(apiUrl, {
       method: 'POST',
       headers: requestHeaders,
       body: JSON.stringify(body),
-      redirect: 'follow',
-      signal: combinedSignal.signal
+      signal: controller.signal
     })
-
-    clearTimeout(timeoutId)
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`)
     }
 
-    if (onOpen) onOpen()
+    // 流式处理响应
+    if (body.stream) {
+      console.log('🚀 Starting stream processing...')
+      // 直接获取文本，不使用复杂的 Reader API
+      const text = await response.text()
+      console.log('📝 Raw response length:', text.length)
 
-    // 优先使用ReadableStream进行流式读取
-    if (supportsReadableStream()) {
-      console.log('✅ Using ReadableStream for streaming')
-      const reader = response.body?.getReader()
-      if (!reader) {
-        throw new Error('Response body is not readable')
-      }
+      const lines = text.split(/\r?\n/)
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || !trimmed.startsWith('data: ')) continue
 
-      const decoder = new TextDecoder()
-      let buffer = ''
+        const data = trimmed.slice(6).trim()
+        if (data === '[DONE]' || data === '') continue
 
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-
-          if (done) {
-            console.log('✅ Stream complete')
-            if (onClose) onClose()
-            break
-          }
-
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6).trim()
-              if (data === '[DONE]') {
-                console.log('✅ Received [DONE]')
-                if (onClose) onClose()
-                return
-              }
-              try {
-                const parsed = JSON.parse(data)
-                console.log('📦 [fetchStream] 解析数据:', JSON.stringify(parsed, null, 2))
-                if (onMessage) onMessage(parsed)
-              } catch (e) {
-                console.error('Failed to parse SSE data:', e)
-                console.log('原始数据:', data)
-              }
-            }
-          }
+        // 只解析有效的JSON数据
+        if (!/^[{\[]/.test(data)) {
+          console.warn('⚠️ Skipping non-JSON:', data.substring(0, 50))
+          continue
         }
-      } finally {
-        reader.releaseLock()
+
+        try {
+          const parsed = JSON.parse(data)
+          if (onMessage) onMessage(parsed)
+        } catch (e: any) {
+          console.error('❌ JSON parse error:', data.substring(0, 50), e.message)
+        }
       }
     } else {
-      console.log('⚠️ ReadableStream not supported, using text-based streaming')
-
-      // Fallback: 读取完整响应然后按行分割模拟流式效果
-      try {
-        const text = await response.text()
-        const lines = text.split('\n').filter(line => line.trim())
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6).trim()
-            if (data && data !== '[DONE]') {
-              try {
-                const parsed = JSON.parse(data)
-                console.log('📦 [fetchStream-fallback] 解析数据:', JSON.stringify(parsed, null, 2))
-                if (onMessage) onMessage(parsed)
-                // 模拟流式延迟
-                await new Promise(resolve => setTimeout(resolve, 50))
-              } catch (e) {
-                console.error('Failed to parse SSE data:', e)
-                console.log('原始数据:', data)
-              }
-            }
-          }
-        }
-
-        if (onClose) onClose()
-      } catch (parseError) {
-        throw new Error('Failed to parse response: ' + parseError)
-      }
+      // 非流式响应
+      const data = await response.json()
+      if (onMessage) onMessage(data)
     }
-  } catch (error) {
-    console.error('Fetch stream error:', error)
+
+    clearTimeout(timeoutId)
+    if (onClose) onClose()
+
+  } catch (error: any) {
+    console.error('Fetch error:', error)
+    clearTimeout(timeoutId)
     if (onError) onError(error)
     if (onClose) onClose()
+    throw error
   }
 }
 
 // 保持向后兼容的 EventSource 包装器
-export function getEventSource({
-  headers,
-  body,
-  type,
-  apiKey
-} : {
-  headers?: any,
-  body: any,
-  type: string,
-  apiKey?: string
-}) {
+export function getEventSource() {
   console.warn('getEventSource is deprecated, use fetchStream instead')
   return null
 }
@@ -206,7 +136,7 @@ export function getFirstN({ messages, size = 10 } : { size?: number, messages: a
   }
 }
 
-export function getChatType(type: Model) {
+export function getChatType(type: { label: string }) {
   if (type.label.includes('gpt')) {
     return 'completions'
   }
