@@ -338,24 +338,64 @@ export function VideoCreator() {
         </TouchableOpacity>
       )}
 
-      {generatedScript && (
+      {generatedScript && !loading && (
         <View style={styles.scriptContainer}>
           <Text style={styles.scriptTitle}>🎬 生成的脚本</Text>
           <ScrollView style={styles.scriptScroll}>
             <Text style={styles.scriptText}>{generatedScript}</Text>
           </ScrollView>
           <View style={styles.scriptActions}>
-            <TouchableOpacity style={styles.actionButton}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={async () => {
+                try {
+                  await Clipboard.setStringAsync(generatedScript)
+                  Alert.alert('提示', '脚本已复制到剪贴板')
+                } catch (error) {
+                  Alert.alert('提示', '复制失败：' + error.message)
+                }
+              }}
+            >
               <Ionicons name="copy-outline" size={20} color={theme.buttonText} />
               <Text style={styles.actionButtonText}>复制脚本</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton}>
-              <Ionicons name="download-outline" size={20} color={theme.buttonText} />
-              <Text style={styles.actionButtonText}>导出文档</Text>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={async () => {
+                try {
+                  await historyService.saveRecord({
+                    type: 'video',
+                    title: `${mode === 'create' ? '原创' : '优化'}脚本 - ${mode === 'create' ? topic : '脚本优化'}`,
+                    prompt: `平台：${PLATFORMS.find(p => p.key === platform)?.label}\n风格：${style || '默认风格'}\n模式：${mode === 'create' ? '原创' : '优化'}`,
+                    result: generatedScript,
+                  })
+                  Alert.alert('提示', '已保存到历史记录')
+                } catch (error) {
+                  Alert.alert('提示', '保存失败：' + error.message)
+                }
+              }}
+            >
+              <Ionicons name="bookmark-outline" size={20} color={theme.buttonText} />
+              <Text style={styles.actionButtonText}>收藏脚本</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton}>
-              <Ionicons name="share-outline" size={20} color={theme.buttonText} />
-              <Text style={styles.actionButtonText}>分享</Text>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => {
+                // 重试功能
+                if (mode === 'create') {
+                  setTopic('')
+                  setStyle('')
+                  setGeneratedScript('')
+                } else {
+                  setOriginalScript('')
+                  setOptimizationNeeds('')
+                  setGeneratedScript('')
+                }
+                Alert.alert('提示', '已清空，请重新输入')
+              }}
+            >
+              <Ionicons name="refresh-outline" size={20} color={theme.buttonText} />
+              <Text style={styles.actionButtonText}>重试</Text>
             </TouchableOpacity>
           </View>
         </View>

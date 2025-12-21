@@ -184,9 +184,13 @@ export function SmartQA() {
     }
   }
 
-  const copyToClipboard = (content: string) => {
-    // 实际应用中可以使用 expo-clipboard
-    alert('已复制到剪贴板')
+  const copyToClipboard = async (content: string) => {
+    try {
+      await Clipboard.setStringAsync(content)
+      alert('已复制到剪贴板')
+    } catch (error) {
+      alert('复制失败：' + error.message)
+    }
   }
 
   return (
@@ -288,7 +292,7 @@ export function SmartQA() {
         </TouchableOpacity>
       )}
 
-      {replyOptions.length > 0 && (
+      {replyOptions.length > 0 && !loading && (
         <View style={styles.repliesContainer}>
           <Text style={styles.repliesTitle}>✨ 5种回复选项</Text>
           {replyOptions.map((reply) => (
@@ -309,7 +313,22 @@ export function SmartQA() {
                 </TouchableOpacity>
               </View>
               <Text style={styles.replyContent}>{reply.content}</Text>
-              <TouchableOpacity style={styles.saveButton}>
+              <TouchableOpacity
+                style={styles.saveButton}
+                onPress={async () => {
+                  try {
+                    await historyService.saveRecord({
+                      type: 'qa',
+                      title: `问答收藏 - ${question.substring(0, 20)}...`,
+                      prompt: `问题：${question}\n场景：${scenario}\n风格：${replyStyle}`,
+                      result: reply.content,
+                    })
+                    Alert.alert('提示', '已保存到话术库')
+                  } catch (error) {
+                    Alert.alert('提示', '保存失败：' + error.message)
+                  }
+                }}
+              >
                 <Ionicons name="bookmark-outline" size={16} color={theme.primaryColor} />
                 <Text style={styles.saveButtonText}>保存到话术库</Text>
               </TouchableOpacity>
