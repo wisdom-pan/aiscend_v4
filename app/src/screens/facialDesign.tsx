@@ -32,9 +32,52 @@ interface Message {
   images?: string[]
   createdAt: string
   isComplete?: boolean  // 标记消息是否已完成（用于控制操作按钮显示）
+  suggestedQuestions?: string[]  // 引导性问题
 }
 
+// 面诊引导性问题
+const FACIAL_SUGGESTED_QUESTIONS = [
+  '针对我的鼻子，有什么具体改善建议？',
+  '我的皮肤适合什么医美项目？',
+  '请详细分析一下我的眼部特征',
+  '有什么保守的改善方案吗？',
+  '帮我制定一个综合的改善计划',
+]
+
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+
+// 内容分段函数（用于选择性复制）
+const parseContents = (content: string): string[] => {
+  if (!content || typeof content !== 'string') return []
+
+  // 尝试使用 --- 分割
+  if (content.includes('---')) {
+    return content.split('---').map(s => s.trim()).filter(s => s.length > 0)
+  }
+
+  // 尝试使用数字序号分割
+  const numberPattern = /^\d+\.|\d+、/m
+  if (numberPattern.test(content)) {
+    const parts = content.split(/^\d+\.|\d+、/m).map(s => s.trim()).filter(s => s.length > 0)
+    if (parts.length > 1) return parts
+  }
+
+  // 尝试使用emoji分割
+  const emojiPattern = /^[📋🔍💡✨⭐️🎯📌📝🗒️]/m
+  if (emojiPattern.test(content)) {
+    const parts = content.split(/^[📋🔍💡✨⭐️🎯📌📝🗒️]/m).map(s => s.trim()).filter(s => s.length > 0)
+    if (parts.length > 1) return parts
+  }
+
+  // 尝试使用章节标题分割（## 开头）
+  if (content.includes('##')) {
+    const parts = content.split(/^##\s+/m).map(s => s.trim()).filter(s => s.length > 0)
+    if (parts.length > 1) return parts
+  }
+
+  // 默认返回整个内容作为一个段落
+  return [content]
+}
 
 export function FacialDesign() {
   const [loading, setLoading] = useState(false)
@@ -363,6 +406,8 @@ export function FacialDesign() {
 
       const prompt = `你是一位资深的面部美学设计专家，拥有15年以上的面部分析和美学设计经验。
 
+【重要】请用中文回复所有分析内容。
+
 用户需求：${requirement}
 
 请分析用户上传的面部照片，并提供专业的美学分析和建议。
@@ -588,7 +633,8 @@ export function FacialDesign() {
         type: 'assistant',
         content: '抱歉，分析过程中出现了错误。请重试或联系客服。',
         createdAt: new Date().toISOString(),
-        isComplete: true
+        isComplete: true,
+        suggestedQuestions: ['请重新上传照片', '换一张更清晰的照片试试']
       }
       setMessages(prev => [...prev, errorMessage])
       setLoading(false)
@@ -720,6 +766,22 @@ export function FacialDesign() {
   }
 
   const renderItem = ({ item }: { item: Message }) => {
+    // 处理追问
+    const handleFollowUp = (question: string) => {
+      setInput(question)
+      setTimeout(() => handleSend(), 100)
+    }
+
+    // 处理选择性复制
+    const handleCopyContent = async (content: string) => {
+      try {
+        await Clipboard.setStringAsync(content)
+        Alert.alert('提示', '内容已复制到剪贴板')
+      } catch (error) {
+        Alert.alert('提示', '复制失败：' + error.message)
+      }
+    }
+
     return (
       <View style={[styles.messageContainer, item.type === 'user' ? styles.userMessage : styles.assistantMessage]}>
         {item.images && item.images.length > 0 && (
@@ -743,9 +805,26 @@ export function FacialDesign() {
             ))}
           </View>
         )}
+
         <View style={[styles.messageBubble, item.type === 'user' ? styles.userBubble : styles.assistantBubble]}>
           {item.type === 'assistant' ? (
-            <Markdown style={styles.markdownStyle}>{item.content}</Markdown>
+            <View>
+              {parseContents(item.content).map((content, index) => (
+                <View key={index} style={styles.contentSection}>
+                  <View style={styles.contentHeader}>
+                    <Text style={styles.contentTitle}>第 {index + 1} 部分</Text>
+                    <TouchableOpacity
+                      style={styles.copyBtn}
+                      onPress={() => handleCopyContent(content)}
+                    >
+                      <Ionicons name="copy-outline" size={16} color={theme.primaryColor} />
+                      <Text style={styles.copyBtnText}>复制</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Markdown style={styles.markdownStyle}>{content}</Markdown>
+                </View>
+              ))}
+            </View>
           ) : (
             <Text style={styles.messageText}>{item.content}</Text>
           )}
@@ -766,14 +845,14 @@ export function FacialDesign() {
               }}
             >
               <Ionicons name="copy-outline" size={18} color="#666" />
-              <Text style={styles.actionBtnText}>复制</Text>
+              <Text style={styles.actionBtnText}>复制全部</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.actionBtn}
               onPress={async () => {
                 try {
                   await historyService.saveRecord({
-                    type: 'analysis',
+                    type: 'facial',
                     title: item.content.substring(0, 30) + '...',
                     prompt: '面部分析结果',
                     result: item.content,
@@ -802,6 +881,22 @@ export function FacialDesign() {
               <Ionicons name="refresh-outline" size={18} color="#666" />
               <Text style={styles.actionBtnText}>重试</Text>
             </TouchableOpacity>
+          </View>
+        )}
+
+        {/* 引导性提问 */}
+        {item.type === 'assistant' && item.isComplete && item.suggestedQuestions && item.suggestedQuestions.length > 0 && (
+          <View style={styles.suggestedQuestions}>
+            <Text style={styles.suggestedTitle}>💡 您可以继续问：</Text>
+            {item.suggestedQuestions.map((q, index) => (
+              <TouchableOpacity
+                key={index}
+                style={styles.suggestedBtn}
+                onPress={() => handleFollowUp(q)}
+              >
+                <Text style={styles.suggestedBtnText}>{q}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
         )}
       </View>
@@ -1025,5 +1120,60 @@ const getStyles = (theme: any) => StyleSheet.create({
   actionBtnText: {
     fontSize: 12,
     color: '#666',
+  },
+  suggestedQuestions: {
+    marginTop: 12,
+    padding: 10,
+    backgroundColor: 'rgba(0,0,0,0.02)',
+    borderRadius: 8,
+  },
+  suggestedTitle: {
+    fontSize: 12,
+    color: '#999',
+    marginBottom: 8,
+  },
+  suggestedBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  suggestedBtnText: {
+    fontSize: 13,
+    color: '#333',
+  },
+  contentSection: {
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.borderColor,
+  },
+  contentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  contentTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: theme.primaryColor,
+  },
+  copyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: theme.primaryColor + '20',
+    borderRadius: 12,
+  },
+  copyBtnText: {
+    fontSize: 12,
+    color: theme.primaryColor,
+    fontWeight: '500',
   },
 })
