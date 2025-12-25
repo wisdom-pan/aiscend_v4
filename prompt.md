@@ -466,5 +466,40 @@ fetch("https://yunwu.ai/v1/chat/completions", requestOptions)
    .catch(error => console.log('error', error));
 
 
-adb -s 10.17.11.44:40371 logcat | grep -E  "FATAL|AndroidRuntime|ReactNativeJS"
+adb -s 10.17.11.44:43829 logcat | grep -E  "FATAL|AndroidRuntime|ReactNativeJS"
    
+
+var myHeaders = new Headers();
+myHeaders.append("Authorization", "Bearer <token>");
+myHeaders.append("Content-Type", "application/json");
+
+var raw = JSON.stringify({
+   "contents": [
+      {
+         "role": "user",
+         "parts": [
+            {
+               "inline_data": {
+                  "mime_type": "image/png",
+                  "data": "iVBORw0KGgoAAAANSUhEUgAAAiEAAAIhCAYAAACYF2qHAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAgAElEQVR4nOy9ebxtWVXf+"
+               }
+            },
+            {
+               "text": "Caption this image."
+            }
+         ]
+      }
+   ]
+});
+
+var requestOptions = {
+   method: 'POST',
+   headers: myHeaders,
+   body: raw,
+   redirect: 'follow'
+};
+
+fetch("https://yunwu.ai/v1beta/models/gemini-3-flash-preview:generateContent?key=", requestOptions)
+   .then(response => response.text())
+   .then(result => console.log(result))
+   .catch(error => console.log('error', error));

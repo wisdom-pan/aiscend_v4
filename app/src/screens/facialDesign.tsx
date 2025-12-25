@@ -307,12 +307,16 @@ export function FacialDesign() {
           setAbortController(null)
           await clearBackgroundTask()
 
-          // 将最后一条助手消息标记为完成
+          // 将最后一条助手消息标记为完成并添加引导问题
           setMessages(prev => {
             const newMessages = [...prev]
             const lastIndex = newMessages.length - 1
             if (lastIndex >= 0 && newMessages[lastIndex].type === 'assistant') {
-              newMessages[lastIndex] = { ...newMessages[lastIndex], isComplete: true }
+              newMessages[lastIndex] = {
+                ...newMessages[lastIndex],
+                isComplete: true,
+                suggestedQuestions: FACIAL_SUGGESTED_QUESTIONS
+              }
             }
             return newMessages
           })
@@ -602,12 +606,16 @@ export function FacialDesign() {
           setAbortController(null)
           await clearBackgroundTask()
 
-          // 将最后一条助手消息标记为完成
+          // 将最后一条助手消息标记为完成并添加引导问题
           setMessages(prev => {
             const newMessages = [...prev]
             const lastIndex = newMessages.length - 1
             if (lastIndex >= 0 && newMessages[lastIndex].type === 'assistant') {
-              newMessages[lastIndex] = { ...newMessages[lastIndex], isComplete: true }
+              newMessages[lastIndex] = {
+                ...newMessages[lastIndex],
+                isComplete: true,
+                suggestedQuestions: FACIAL_SUGGESTED_QUESTIONS
+              }
             }
             return newMessages
           })
@@ -739,12 +747,16 @@ export function FacialDesign() {
         onClose: () => {
           setLoading(false)
 
-          // 将最后一条助手消息标记为完成
+          // 将最后一条助手消息标记为完成并添加引导问题
           setMessages(prev => {
             const newMessages = [...prev]
             const lastIndex = newMessages.length - 1
             if (lastIndex >= 0 && newMessages[lastIndex].type === 'assistant') {
-              newMessages[lastIndex] = { ...newMessages[lastIndex], isComplete: true }
+              newMessages[lastIndex] = {
+                ...newMessages[lastIndex],
+                isComplete: true,
+                suggestedQuestions: FACIAL_SUGGESTED_QUESTIONS
+              }
             }
             return newMessages
           })
