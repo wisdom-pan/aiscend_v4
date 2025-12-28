@@ -9,17 +9,19 @@ import {
   Alert,
   FlatList,
   KeyboardAvoidingView,
+  ActivityIndicator,
 } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
-import { useState, useContext, useRef } from 'react'
-import { ThemeContext } from '../context'
+import { useState, useContext, useRef, useEffect } from 'react'
+import { ThemeContext, AppContext } from '../context'
 import * as ImagePicker from 'expo-image-picker'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { v4 as uuid } from 'uuid'
-import { MODELS } from '../../constants'
-import { fetchStream } from '../utils'
+import { fetchStream, getChatType } from '../utils'
 import { API_KEYS } from '../../constants'
+import { apiService } from '../services/apiService'
 import { historyService } from '../services/historyService'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import Markdown from '@ronradtke/react-native-markdown-display'
 
 interface ContentStyle {
@@ -80,6 +82,7 @@ export function ContentGenerator() {
   const [selectedStyle, setSelectedStyle] = useState<string>('professional')
   const [keywords, setKeywords] = useState('')
   const [wordCount, setWordCount] = useState('100-200')
+  const [openaiApiKey, setOpenaiApiKey] = useState<string>('')
   const [messages, setMessages] = useState<Message[]>([
     {
       id: generateId(),
@@ -92,8 +95,43 @@ export function ContentGenerator() {
   const [followUpInput, setFollowUpInput] = useState('')
   const [showSettings, setShowSettings] = useState(true)
   const { theme } = useContext(ThemeContext)
+  const { chatType } = useContext(AppContext)
   const styles = getStyles(theme)
   const flatListRef = useRef<FlatList>(null)
+
+  // 初始化 API Keys
+  useEffect(() => {
+    async function initializeKeys() {
+      // 首先尝试从 constants 导入的硬编码密钥
+      if (API_KEYS.OPENAI) {
+        setOpenaiApiKey(API_KEYS.OPENAI)
+      }
+
+      // 然后尝试从 apiService 加载
+      try {
+        await apiService.loadApiKeys()
+        const { hasOpenAI } = apiService.hasApiKeys()
+
+        if (hasOpenAI) {
+          const stored = await AsyncStorage.getItem('openai_api_key')
+          if (API_KEYS.OPENAI) {
+            setOpenaiApiKey(API_KEYS.OPENAI)
+          } else if (stored) {
+            setOpenaiApiKey(stored)
+          }
+        }
+
+        // 设置API密钥到apiService
+        const openaiKey = API_KEYS.OPENAI || (await AsyncStorage.getItem('openai_api_key')) || ''
+        const geminiKey = API_KEYS.GEMINI || (await AsyncStorage.getItem('gemini_api_key')) || ''
+        await apiService.setApiKeys(openaiKey, geminiKey)
+      } catch (error) {
+        console.error('Failed to initialize API keys:', error)
+      }
+    }
+
+    initializeKeys()
+  }, [])
 
   // 停止响应
   const stopResponse = () => {
@@ -165,9 +203,9 @@ export function ContentGenerator() {
 
       const systemPrompt = `你是一位专业的医美朋友圈文案创作专家，擅长创作吸引人的朋友圈内容。
 
-【重要】请用中文回复，不要思考，直接输出。输出格式要求：
+【重要】No thinking，直接输出最终结果。输出格式要求：
 1. 生成3条不同风格的朋友圈文案
-2. 每条文案要有明显的分隔
+2. 每条文案要有明显的分隔（使用 "---" 三连横线分隔）
 3. 文案要自然流畅，符合朋友圈调性
 4. 适当使用emoji，但不要过度
 5. 每条文案角度不同，避免重复
@@ -176,11 +214,22 @@ export function ContentGenerator() {
 内容风格：${selectedStyleObj?.label} - ${selectedStyleObj?.description}
 目标字数：${wordCount}
 
-如果用户要求修改或调整，请基于之前生成的内容进行优化。`
+如果用户要求修改或调整，请基于之前生成的内容进行优化。
 
       let localResponse = ''
       const controller = new AbortController()
       setAbortController(controller)
+
+      console.log('🚀 开始生成文案，使用的模型:', chatType.label)
+      console.log('🔑 API Key:', openaiApiKey ? openaiApiKey.substring(0, 10) + '...' : '未设置')
+
+      if (!openaiApiKey) {
+        console.error('❌ API Key 未设置')
+        setLoading(false)
+        setAbortController(null)
+        Alert.alert('提示', '请先在设置中配置API Key')
+        return
+      }
 
       const assistantMessage: Message = {
         id: generateId(),
@@ -200,11 +249,11 @@ export function ContentGenerator() {
             ...conversationHistory,
             { role: 'user', content: userContent }
           ],
-          model: 'gemini-3-flash-preview',
+          model: chatType.label,
           stream: true
         },
-        type: 'openai',
-        apiKey: API_KEYS.OPENAI,
+        type: getChatType(chatType),
+        apiKey: openaiApiKey,
         abortController: controller,
         onMessage: (data) => {
           const content = data.choices?.[0]?.delta?.reasoning_content ||
@@ -352,7 +401,37 @@ export function ContentGenerator() {
                       </TouchableOpacity>
                     </View>
                     <Markdown style={{
-                      body: { color: theme.textColor, fontSize: 14 },
+                      body: { color: theme.textColor, fontSize: 14, lineHeight: 22 },
+                      paragraph: { color: theme.textColor, fontSize: 14, lineHeight: 22 },
+                      strong: { color: theme.primaryColor, fontWeight: 'bold' },
+                      em: { fontStyle: 'italic' },
+                      code_inline: {
+                        backgroundColor: theme.primaryColor + '20',
+                        color: theme.primaryColor,
+                        paddingHorizontal: 6,
+                        paddingVertical: 2,
+                        borderRadius: 4,
+                        fontSize: 12,
+                      },
+                      code_block: {
+                        backgroundColor: '#1e1e1e',
+                        padding: 12,
+                        borderRadius: 8,
+                        marginVertical: 8,
+                      },
+                      fence: {
+                        backgroundColor: '#1e1e1e',
+                        padding: 12,
+                        borderRadius: 8,
+                        marginVertical: 8,
+                      },
+                      blockquote: {
+                        borderLeftWidth: 3,
+                        borderLeftColor: theme.primaryColor,
+                        paddingLeft: 12,
+                        marginVertical: 8,
+                        color: theme.placeholderColor,
+                      },
                     }}>
                       {content}
                     </Markdown>
@@ -360,7 +439,47 @@ export function ContentGenerator() {
                 ))
               ) : (
                 <Markdown style={{
-                  body: { color: theme.textColor, fontSize: 14 },
+                  body: { color: theme.textColor, fontSize: 14, lineHeight: 22 },
+                  paragraph: { color: theme.textColor, fontSize: 14, lineHeight: 22 },
+                  strong: { color: theme.primaryColor, fontWeight: 'bold' },
+                  em: { fontStyle: 'italic' },
+                  code_inline: {
+                    backgroundColor: theme.primaryColor + '20',
+                    color: theme.primaryColor,
+                    paddingHorizontal: 6,
+                    paddingVertical: 2,
+                    borderRadius: 4,
+                    fontSize: 12,
+                  },
+                  code_block: {
+                    backgroundColor: '#1e1e1e',
+                    padding: 12,
+                    borderRadius: 8,
+                    marginVertical: 8,
+                  },
+                  fence: {
+                    backgroundColor: '#1e1e1e',
+                    padding: 12,
+                    borderRadius: 8,
+                    marginVertical: 8,
+                  },
+                  blockquote: {
+                    borderLeftWidth: 3,
+                    borderLeftColor: theme.primaryColor,
+                    paddingLeft: 12,
+                    marginVertical: 8,
+                    color: theme.placeholderColor,
+                  },
+                  list_item: {
+                    color: theme.textColor,
+                    fontSize: 14,
+                  },
+                  bullet_list: {
+                    color: theme.textColor,
+                  },
+                  ordered_list: {
+                    color: theme.textColor,
+                  },
                 }}>
                   {item.content}
                 </Markdown>
