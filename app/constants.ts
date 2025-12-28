@@ -21,8 +21,8 @@ export const API_CONFIG = {
 }
 
 export const MODELS = {
-  gpt: { name: 'GPT 4', label: 'gpt-5.1', icon: OpenAIIcon },
-  gptTurbo: { name: 'GPT Turbo', label: 'gpt-5.1', icon: OpenAIIcon },
+  gpt: { name: 'GPT 4', label: 'gemini-3-flash-preview', icon: OpenAIIcon },
+  gptTurbo: { name: 'GPT Turbo', label: 'gemini-3-flash-preview', icon: OpenAIIcon },
   claude: { name: 'Claude', label: 'claude', icon: AnthropicIcon },
   claudeInstant: { name: 'Claude Instant', label: 'claudeInstant', icon: AnthropicIcon },
   cohere: { name: 'Cohere', label: 'cohere', icon: CohereIcon },

@@ -4,21 +4,39 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Image,
   TextInput,
+  Alert,
+  ActivityIndicator,
 } from 'react-native'
-import { useState, useContext } from 'react'
-import { ThemeContext } from '../context'
+import { useState, useContext, useEffect } from 'react'
+import { ThemeContext, AppContext } from '../context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import * as ImagePicker from 'expo-image-picker'
-import { MODELS } from '../../constants'
-import { fetchStream } from '../utils'
+import * as Clipboard from 'expo-clipboard'
+import { fetchStream, getChatType } from '../utils'
 import { API_KEYS } from '../../constants'
+import { apiService } from '../services/apiService'
 import { historyService } from '../services/historyService'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import { v4 as uuid } from 'uuid'
 
 interface ReplyOption {
   id: string
   style: string
   content: string
+}
+
+// 图片转为base64
+const imageToBase64 = async (uri: string): Promise<string> => {
+  const response = await fetch(uri)
+  const blob = await response.blob()
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
 }
 
 interface Scenario {
@@ -50,9 +68,45 @@ export function SmartQA() {
   const [replyStyle, setReplyStyle] = useState<string>('professional')
   const [replyOptions, setReplyOptions] = useState<ReplyOption[]>([])
   const [selectedReply, setSelectedReply] = useState<string | null>(null)
+  const [openaiApiKey, setOpenaiApiKey] = useState<string>('')
 
   const { theme } = useContext(ThemeContext)
+  const { chatType } = useContext(AppContext)
   const styles = getStyles(theme)
+
+  // 初始化 API Keys
+  useEffect(() => {
+    async function initializeKeys() {
+      // 首先尝试从 constants 导入的硬编码密钥
+      if (API_KEYS.OPENAI) {
+        setOpenaiApiKey(API_KEYS.OPENAI)
+      }
+
+      // 然后尝试从 apiService 加载
+      try {
+        await apiService.loadApiKeys()
+        const { hasOpenAI } = apiService.hasApiKeys()
+
+        if (hasOpenAI) {
+          const stored = await AsyncStorage.getItem('openai_api_key')
+          if (API_KEYS.OPENAI) {
+            setOpenaiApiKey(API_KEYS.OPENAI)
+          } else if (stored) {
+            setOpenaiApiKey(stored)
+          }
+        }
+
+        // 设置API密钥到apiService
+        const openaiKey = API_KEYS.OPENAI || (await AsyncStorage.getItem('openai_api_key')) || ''
+        const geminiKey = API_KEYS.GEMINI || (await AsyncStorage.getItem('gemini_api_key')) || ''
+        await apiService.setApiKeys(openaiKey, geminiKey)
+      } catch (error) {
+        console.error('Failed to initialize API keys:', error)
+      }
+    }
+
+    initializeKeys()
+  }, [])
 
   // 停止响应
   const stopResponse = () => {
@@ -71,13 +125,14 @@ export function SmartQA() {
     })
 
     if (!result.canceled) {
-      setImage(result.assets[0].uri)
+      const uri = result.assets[0].uri
+      setImage(uri)
     }
   }
 
   const generateReplies = async () => {
-    if (!question.trim()) {
-      alert('请输入客户问题')
+    if (!question.trim() && !image) {
+      alert('请输入客户问题或上传图片')
       return
     }
 
@@ -91,7 +146,7 @@ export function SmartQA() {
 应用场景：${selectedScenario?.label} - ${selectedScenario?.description}
 回复风格：${selectedStyle?.label} - ${selectedStyle?.description}
 
-请基于客户的问题，生成5个不同风格的回复选项：
+请基于客户的问题或图片内容，生成5个不同风格的回复选项：
 1. 专业权威（用数据和案例说服）
 2. 温暖关怀（情感共鸣+专业建议）
 3. 高情商（先理解后引导）
@@ -105,70 +160,129 @@ export function SmartQA() {
 - 适当引导到店咨询或加微信
 - 自然融入问题关键词`
 
-      const eventSourceArgs = {
-        body: {
-          messages: [
-            {
-              role: 'system',
-              content: systemPrompt
-            },
-            {
-              role: 'user',
-              content: `客户问题：${question}`
-            }
-          ],
-          model: MODELS.gpt.label,
-          stream: true
-        },
-        type: 'openai',
-        apiKey: API_KEYS.OPENAI
+      const controller = new AbortController()
+      setAbortController(controller)
+
+      // 构建消息，支持图片多模态输入
+      let messages: any[] = [
+        {
+          role: 'system',
+          content: systemPrompt
+        }
+      ]
+
+      // 用户消息（支持图片）
+      if (image) {
+        // 将图片转为 base64
+        const base64Image = await imageToBase64(image)
+        messages.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: `客户问题：${question || '请分析图片内容并给出回复建议'}` },
+            { type: 'image_url', image_url: { url: base64Image } }
+          ]
+        })
+      } else {
+        messages.push({
+          role: 'user',
+          content: `客户问题：${question}`
+        })
       }
 
       let localResponse = ''
 
+      console.log('🚀 开始生成回复，使用的模型:', chatType.label)
+      console.log('🔑 API Key:', openaiApiKey ? openaiApiKey.substring(0, 10) + '...' : '未设置')
+
+      if (!openaiApiKey) {
+        console.error('❌ API Key 未设置')
+        setLoading(false)
+        setAbortController(null)
+        alert('请先在设置中配置API Key')
+        return
+      }
+
       await fetchStream({
-        body: eventSourceArgs.body,
-        type: eventSourceArgs.type,
-        apiKey: eventSourceArgs.apiKey,
-        onOpen: () => {
-          console.log("Open streaming connection.")
+        body: {
+          messages,
+          model: chatType.label,
+          stream: true
         },
+        type: getChatType(chatType),
+        apiKey: openaiApiKey,
+        abortController: controller,
         onMessage: (data) => {
-          try {
-            console.log('📨 收到数据:', JSON.stringify(data, null, 2))
-            if (data.choices && data.choices[0]?.delta?.content) {
-              const newContent = data.choices[0].delta.content
-              console.log('✏️ 新内容:', newContent)
-              localResponse += newContent
-              console.log('📝 累计内容长度:', localResponse.length)
-              // 实时更新显示（流式输出效果）
-              setReplyOptions([
-                {
-                  id: '1',
-                  style: '生成中...',
-                  content: localResponse
-                }
-              ])
-            }
-          } catch (error) {
-            console.error('Failed to parse stream data:', error)
+          if (data.choices && data.choices[0]?.delta?.content) {
+            const newContent = data.choices[0].delta.content
+            localResponse += newContent
           }
         },
         onError: (error) => {
           console.error('Streaming error:', error)
           setLoading(false)
+          setAbortController(null)
           alert('生成失败，请重试')
         },
         onClose: async () => {
           console.log('Stream closed')
           setLoading(false)
+          setAbortController(null)
+
+          // 解析5个回复选项
+          const parseReplyOptions = (text: string): ReplyOption[] => {
+            const options: ReplyOption[] = []
+            const styleLabels = ['专业权威', '温暖关怀', '高情商', '安抚型', '直接型']
+
+            // 尝试按分隔符分割
+            const separators = [
+              /\n(\d+[、.]\s*)/,
+              /\n(【?\d+】?\s*)/,
+              /\n(选项?\d+[：:]\s*)/,
+              /(---\n)/,
+            ]
+
+            let parts = text.split(separators[0])
+            if (parts.length < 3) {
+              parts = text.split(separators[1])
+            }
+
+            if (parts.length >= 3 && parts[0].trim().length < 100) {
+              // 按数字序号分割成功
+              const regex = /(\d+[、.]\s*)/
+              const optionTexts = text.split(regex).filter(t => t.trim().length > 20)
+              optionTexts.forEach((text, index) => {
+                const cleanText = text.replace(/^\d+[、.]\s*/, '').trim()
+                if (cleanText.length > 10) {
+                  options.push({
+                    id: uuid(),
+                    style: styleLabels[index] || `选项${index + 1}`,
+                    content: cleanText
+                  })
+                }
+              })
+            }
+
+            // 如果解析失败，创建单个选项
+            if (options.length === 0) {
+              options.push({
+                id: uuid(),
+                style: '生成结果',
+                content: text
+              })
+            }
+
+            return options
+          }
+
+          const replyOptions = parseReplyOptions(localResponse)
+          setReplyOptions(replyOptions)
 
           // 记录历史
           try {
             await historyService.saveRecord({
               type: 'qa',
               title: `智能问答 - ${question.substring(0, 20)}...`,
-              prompt: `问题：${question}\n场景：${scenario}\n风格：${style}`,
+              prompt: `问题：${question}\n场景：${scenario}\n风格：${replyStyle}`,
               result: localResponse,
             })
           } catch (historyError) {
@@ -213,10 +327,18 @@ export function SmartQA() {
         />
         <TouchableOpacity style={styles.attachButton} onPress={pickImage}>
           <Ionicons name="image-outline" size={20} color={theme.primaryColor} />
-          <Text style={styles.attachButtonText}>添加截图（可选）</Text>
+          <Text style={styles.attachButtonText}>{image ? '更换图片' : '添加截图（可选）'}</Text>
         </TouchableOpacity>
         {image && (
-          <Text style={styles.imageAttached}>✓ 图片已附加</Text>
+          <View style={styles.imagePreviewContainer}>
+            <Image source={{ uri: image }} style={styles.imagePreview} />
+            <TouchableOpacity
+              style={styles.removeImageBtn}
+              onPress={() => setImage(null)}
+            >
+              <Ionicons name="close-circle" size={20} color="#FF4757" />
+            </TouchableOpacity>
+          </View>
         )}
       </View>
 
@@ -415,6 +537,25 @@ const getStyles = (theme: any) => StyleSheet.create({
     fontSize: 14,
     color: theme.primaryColor,
     marginTop: 8,
+  },
+  imagePreviewContainer: {
+    position: 'relative',
+    marginTop: 12,
+    alignSelf: 'flex-start',
+  },
+  imagePreview: {
+    width: 100,
+    height: 100,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.borderColor,
+  },
+  removeImageBtn: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#fff',
+    borderRadius: 10,
   },
   scenarioGrid: {
     gap: 12,

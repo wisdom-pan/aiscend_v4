@@ -18,6 +18,7 @@ import Ionicons from '@expo/vector-icons/Ionicons'
 export function History() {
   const [stats, setStats] = useState<UsageStats | null>(null)
   const [history, setHistory] = useState<HistoryRecord[]>([])
+  const [weeklyData, setWeeklyData] = useState<{ labels: string[], data: number[] }>({ labels: [], data: [] })
   const [selectedTab, setSelectedTab] = useState<'overview' | 'records'>('overview')
   const [editModalVisible, setEditModalVisible] = useState(false)
   const [selectedRecord, setSelectedRecord] = useState<HistoryRecord | null>(null)
@@ -33,9 +34,11 @@ export function History() {
   const loadData = async () => {
     try {
       const statsData = await historyService.getStats()
-      const historyData = await historyService.getHistory(50)
+      const historyData = await historyService.getHistory() // 获取全部历史记录
+      const weekly = await historyService.getWeeklyActivityData()
       setStats(statsData)
       setHistory(historyData)
+      setWeeklyData(weekly)
     } catch (error) {
       console.error('Error loading data:', error)
     }
@@ -72,15 +75,17 @@ export function History() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>📈 本周活跃度</Text>
           <View style={styles.weeklyActivity}>
-            {['日', '一', '二', '三', '四', '五', '六'].map((day, index) => (
-              <View key={index} style={styles.dayColumn}>
-                <View style={[
-                  styles.activityBar,
-                  { height: Math.random() * 60 + 20 }
-                ]} />
-                <Text style={styles.dayLabel}>{day}</Text>
-              </View>
-            ))}
+            {weeklyData.labels.map((day, index) => {
+              const maxVal = Math.max(...weeklyData.data, 1)
+              const height = (weeklyData.data[index] / maxVal) * 60 + 10
+              return (
+                <View key={index} style={styles.dayColumn}>
+                  <View style={[styles.activityBar, { height }]} />
+                  <Text style={styles.dayLabel}>{day}</Text>
+                  <Text style={styles.dayCount}>{weeklyData.data[index]}</Text>
+                </View>
+              )
+            })}
           </View>
         </View>
 
@@ -199,9 +204,17 @@ export function History() {
         </View>
         <Ionicons name="chevron-forward" size={20} color={theme.placeholderColor} />
       </View>
+      <Text style={styles.recordTitle} numberOfLines={1}>
+        {item.title}
+      </Text>
       <Text style={styles.recordPrompt} numberOfLines={2}>
         {item.prompt}
       </Text>
+      {item.result && (
+        <Text style={styles.recordResult} numberOfLines={3}>
+          {item.result}
+        </Text>
+      )}
     </TouchableOpacity>
   )
 
@@ -296,7 +309,7 @@ export function History() {
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>内容</Text>
+              <Text style={styles.inputLabel}>输入内容</Text>
               <TextInput
                 style={[styles.textInput, styles.multilineInput]}
                 value={editPrompt}
@@ -304,10 +317,21 @@ export function History() {
                 placeholder="输入内容"
                 placeholderTextColor={theme.placeholderColor}
                 multiline
-                numberOfLines={6}
+                numberOfLines={4}
                 textAlignVertical="top"
               />
             </View>
+
+            {selectedRecord?.result && (
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>生成结果</Text>
+                <ScrollView style={styles.resultContainer} nestedScrollEnabled>
+                  <Text style={styles.resultText} selectable>
+                    {selectedRecord.result}
+                  </Text>
+                </ScrollView>
+              </View>
+            )}
 
             <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteRecord}>
               <Ionicons name="trash-outline" size={20} color="#fff" />
@@ -425,6 +449,11 @@ const getStyles = (theme: any) => StyleSheet.create({
     fontSize: 12,
     color: theme.placeholderColor,
   },
+  dayCount: {
+    fontSize: 10,
+    color: theme.primaryColor,
+    fontWeight: '600',
+  },
   featureDistribution: {
     backgroundColor: theme.cardBackground,
     borderRadius: 12,
@@ -503,8 +532,41 @@ const getStyles = (theme: any) => StyleSheet.create({
     color: theme.placeholderColor,
   },
   recordPrompt: {
+    fontSize: 13,
+    color: theme.placeholderColor,
+    lineHeight: 18,
+    marginBottom: 8,
+  },
+  recordTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.textColor,
+    marginBottom: 4,
+  },
+  recordResult: {
+    fontSize: 13,
+    color: theme.textColor,
+    lineHeight: 18,
+    backgroundColor: theme.backgroundColor,
+    padding: 8,
+    borderRadius: 6,
+    marginTop: 4,
+  },
+  multilineInput: {
+    height: 100,
+    textAlignVertical: 'top',
+  },
+  resultContainer: {
+    maxHeight: 300,
+    backgroundColor: theme.cardBackground,
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: theme.borderColor,
+  },
+  resultDisplayText: {
     fontSize: 14,
     color: theme.textColor,
-    lineHeight: 20,
+    lineHeight: 22,
   },
 })

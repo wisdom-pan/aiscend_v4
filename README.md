@@ -228,8 +228,14 @@ adb logcat | grep -E "(API Configuration Debug|API Key|Request URL|Request heade
 
 
 ```bash
-adb -s 192.168.1.2:40457 logcat | grep -E "(ReactNative|fetchStream|reasoning_content|content)"
+adb -s 192.168.1.2:43157 logcat | grep -E "(ReactNative|fetchStream|reasoning_content|content)"
 
-adb -s 10.17.11.44:40371 logcat -d | grep -E "(body.stream|response.body|Stream mode)"
+adb -s 192.168.1.2:43157 logcat -d | grep -E "(fetchStream|response.body|Stream mode)"
 
 ```
+
+adb -s 192.168.1.2:43157 logcat -d | grep -E  "(fetchStream|response.body|Stream mode|cleanup|XHR)"
+
+
+adb -s 192.168.1.2:43157 logcat -d | grep   -E "(aisenda|fetchStream|Stream mode|cleanup)"
+adb -s 192.168.1.2:43157 logcat -d | grep -E "(ReactNativeJS|JS|error)"
