@@ -669,18 +669,22 @@ export function FacialDesign() {
 
     try {
       let localResponse = ''
+
+      // 构建包含历史消息的对话
+      const conversationHistory = [
+        ...messages.map(m => ({
+          role: m.type === 'user' ? 'user' as const : 'assistant' as const,
+          content: m.content
+        })),
+        {
+          role: 'user' as const,
+          content: userInput
+        }
+      ]
+
       const eventSourceArgs = {
         body: {
-          messages: [
-            {
-              role: 'system',
-              content: '你是一位资深的面部美学设计专家，拥有15年以上的面部分析和美学设计经验。请专业、详细地回答用户关于面部美学的问题。如果用户提供了照片，请基于照片进行分析；如果没有照片，请引导用户上传照片以便提供更精准的建议。'
-            },
-            {
-              role: 'user',
-              content: userInput
-            }
-          ],
+          messages: conversationHistory,
           model: chatType.label,
           stream: true
         },
