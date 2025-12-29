@@ -4,39 +4,26 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Image,
   TextInput,
+  Image,
   Alert,
-  ActivityIndicator,
 } from 'react-native'
-import { useState, useContext, useEffect } from 'react'
-import { ThemeContext, AppContext } from '../context'
+import { useState, useContext } from 'react'
+import { ThemeContext } from '../context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import * as ImagePicker from 'expo-image-picker'
 import * as Clipboard from 'expo-clipboard'
-import { fetchStream, getChatType } from '../utils'
+import { Buffer } from 'buffer'
+import Markdown from '@ronradtke/react-native-markdown-display'
+import { MODELS } from '../../constants'
+import { fetchStream } from '../utils'
 import { API_KEYS } from '../../constants'
-import { apiService } from '../services/apiService'
 import { historyService } from '../services/historyService'
-import AsyncStorage from '@react-native-async-storage/async-storage'
-import { v4 as uuid } from 'uuid'
 
 interface ReplyOption {
   id: string
   style: string
   content: string
-}
-
-// 图片转为base64
-const imageToBase64 = async (uri: string): Promise<string> => {
-  const response = await fetch(uri)
-  const blob = await response.blob()
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(blob)
-  })
 }
 
 interface Scenario {
@@ -51,6 +38,26 @@ const SCENARIOS: Scenario[] = [
   { key: 'close', label: '促进成交', description: '推动客户做决定' },
 ]
 
+// 图片转Base64
+const imageToBase64 = async (uri: string): Promise<string> => {
+  try {
+    const response = await fetch(uri)
+    const blob = await response.blob()
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        const base64 = reader.result as string
+        resolve(base64.split(',')[1])
+      }
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    })
+  } catch (error) {
+    console.error('图片转换失败:', error)
+    throw error
+  }
+}
+
 const REPLY_STYLES = [
   { key: 'professional', label: '专业权威', description: '用数据和案例说服' },
   { key: 'warm', label: '温暖关怀', description: '情感共鸣+专业建议' },
@@ -64,49 +71,14 @@ export function SmartQA() {
   const [abortController, setAbortController] = useState<AbortController | null>(null)
   const [question, setQuestion] = useState('')
   const [image, setImage] = useState<string | null>(null)
+  const [imageBase64, setImageBase64] = useState<string | null>(null)
   const [scenario, setScenario] = useState<string>('consult')
   const [replyStyle, setReplyStyle] = useState<string>('professional')
   const [replyOptions, setReplyOptions] = useState<ReplyOption[]>([])
   const [selectedReply, setSelectedReply] = useState<string | null>(null)
-  const [openaiApiKey, setOpenaiApiKey] = useState<string>('')
 
   const { theme } = useContext(ThemeContext)
-  const { chatType } = useContext(AppContext)
   const styles = getStyles(theme)
-
-  // 初始化 API Keys
-  useEffect(() => {
-    async function initializeKeys() {
-      // 首先尝试从 constants 导入的硬编码密钥
-      if (API_KEYS.OPENAI) {
-        setOpenaiApiKey(API_KEYS.OPENAI)
-      }
-
-      // 然后尝试从 apiService 加载
-      try {
-        await apiService.loadApiKeys()
-        const { hasOpenAI } = apiService.hasApiKeys()
-
-        if (hasOpenAI) {
-          const stored = await AsyncStorage.getItem('openai_api_key')
-          if (API_KEYS.OPENAI) {
-            setOpenaiApiKey(API_KEYS.OPENAI)
-          } else if (stored) {
-            setOpenaiApiKey(stored)
-          }
-        }
-
-        // 设置API密钥到apiService
-        const openaiKey = API_KEYS.OPENAI || (await AsyncStorage.getItem('openai_api_key')) || ''
-        const geminiKey = API_KEYS.GEMINI || (await AsyncStorage.getItem('gemini_api_key')) || ''
-        await apiService.setApiKeys(openaiKey, geminiKey)
-      } catch (error) {
-        console.error('Failed to initialize API keys:', error)
-      }
-    }
-
-    initializeKeys()
-  }, [])
 
   // 停止响应
   const stopResponse = () => {
@@ -127,12 +99,20 @@ export function SmartQA() {
     if (!result.canceled) {
       const uri = result.assets[0].uri
       setImage(uri)
+      // 转换为Base64
+      try {
+        const base64 = await imageToBase64(uri)
+        setImageBase64(base64)
+      } catch (error) {
+        console.error('图片转换失败:', error)
+        Alert.alert('提示', '图片处理失败，请重试')
+      }
     }
   }
 
   const generateReplies = async () => {
-    if (!question.trim() && !image) {
-      alert('请输入客户问题或上传图片')
+    if (!question.trim()) {
+      alert('请输入客户问题')
       return
     }
 
@@ -146,7 +126,7 @@ export function SmartQA() {
 应用场景：${selectedScenario?.label} - ${selectedScenario?.description}
 回复风格：${selectedStyle?.label} - ${selectedStyle?.description}
 
-请基于客户的问题或图片内容，生成5个不同风格的回复选项：
+请基于客户的问题，生成5个不同风格的回复选项：
 1. 专业权威（用数据和案例说服）
 2. 温暖关怀（情感共鸣+专业建议）
 3. 高情商（先理解后引导）
@@ -160,122 +140,71 @@ export function SmartQA() {
 - 适当引导到店咨询或加微信
 - 自然融入问题关键词`
 
-      const controller = new AbortController()
-      setAbortController(controller)
+      // 构建用户消息（支持图文）
+      const userMessageContent = imageBase64
+        ? [
+            { type: 'text' as const, text: `客户问题：${question}` },
+            { type: 'image_url' as const, image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
+          ]
+        : `客户问题：${question}`
 
-      // 构建消息，支持图片多模态输入
-      let messages: any[] = [
+      const messages = [
         {
-          role: 'system',
-          content: systemPrompt
+          role: 'user' as const,
+          content: [
+            { type: 'text' as const, text: systemPrompt }
+          ]
+        },
+        {
+          role: 'user' as const,
+          content: userMessageContent
         }
       ]
 
-      // 用户消息（支持图片）
-      if (image) {
-        // 将图片转为 base64
-        const base64Image = await imageToBase64(image)
-        messages.push({
-          role: 'user',
-          content: [
-            { type: 'text', text: `客户问题：${question || '请分析图片内容并给出回复建议'}` },
-            { type: 'image_url', image_url: { url: base64Image } }
-          ]
-        })
-      } else {
-        messages.push({
-          role: 'user',
-          content: `客户问题：${question}`
-        })
-      }
-
       let localResponse = ''
-
-      console.log('🚀 开始生成回复，使用的模型:', chatType.label)
-      console.log('🔑 API Key:', openaiApiKey ? openaiApiKey.substring(0, 10) + '...' : '未设置')
-
-      if (!openaiApiKey) {
-        console.error('❌ API Key 未设置')
-        setLoading(false)
-        setAbortController(null)
-        alert('请先在设置中配置API Key')
-        return
-      }
 
       await fetchStream({
         body: {
           messages,
-          model: chatType.label,
+          model: 'gemini-3-flash-preview',
+          temperature: 0.5,
+          top_p: 1,
           stream: true
         },
-        type: getChatType(chatType),
-        apiKey: openaiApiKey,
-        abortController: controller,
+        type: 'openai',
+        apiKey: API_KEYS.GEMINI,
+        onOpen: () => {
+          console.log("Open streaming connection.")
+        },
         onMessage: (data) => {
-          if (data.choices && data.choices[0]?.delta?.content) {
-            const newContent = data.choices[0].delta.content
-            localResponse += newContent
+          try {
+            console.log('📨 收到数据:', JSON.stringify(data, null, 2))
+            if (data.choices && data.choices[0]?.delta?.content) {
+              const newContent = data.choices[0].delta.content
+              console.log('✏️ 新内容:', newContent)
+              localResponse += newContent
+              console.log('📝 累计内容长度:', localResponse.length)
+              // 实时更新显示（流式输出效果）
+              setReplyOptions([
+                {
+                  id: '1',
+                  style: '生成中...',
+                  content: localResponse
+                }
+              ])
+            }
+          } catch (error) {
+            console.error('Failed to parse stream data:', error)
           }
         },
         onError: (error) => {
           console.error('Streaming error:', error)
           setLoading(false)
-          setAbortController(null)
           alert('生成失败，请重试')
         },
         onClose: async () => {
           console.log('Stream closed')
           setLoading(false)
-          setAbortController(null)
-
-          // 解析5个回复选项
-          const parseReplyOptions = (text: string): ReplyOption[] => {
-            const options: ReplyOption[] = []
-            const styleLabels = ['专业权威', '温暖关怀', '高情商', '安抚型', '直接型']
-
-            // 尝试按分隔符分割
-            const separators = [
-              /\n(\d+[、.]\s*)/,
-              /\n(【?\d+】?\s*)/,
-              /\n(选项?\d+[：:]\s*)/,
-              /(---\n)/,
-            ]
-
-            let parts = text.split(separators[0])
-            if (parts.length < 3) {
-              parts = text.split(separators[1])
-            }
-
-            if (parts.length >= 3 && parts[0].trim().length < 100) {
-              // 按数字序号分割成功
-              const regex = /(\d+[、.]\s*)/
-              const optionTexts = text.split(regex).filter(t => t.trim().length > 20)
-              optionTexts.forEach((text, index) => {
-                const cleanText = text.replace(/^\d+[、.]\s*/, '').trim()
-                if (cleanText.length > 10) {
-                  options.push({
-                    id: uuid(),
-                    style: styleLabels[index] || `选项${index + 1}`,
-                    content: cleanText
-                  })
-                }
-              })
-            }
-
-            // 如果解析失败，创建单个选项
-            if (options.length === 0) {
-              options.push({
-                id: uuid(),
-                style: '生成结果',
-                content: text
-              })
-            }
-
-            return options
-          }
-
-          const replyOptions = parseReplyOptions(localResponse)
-          setReplyOptions(replyOptions)
 
           // 记录历史
           try {
@@ -327,14 +256,17 @@ export function SmartQA() {
         />
         <TouchableOpacity style={styles.attachButton} onPress={pickImage}>
           <Ionicons name="image-outline" size={20} color={theme.primaryColor} />
-          <Text style={styles.attachButtonText}>{image ? '更换图片' : '添加截图（可选）'}</Text>
+          <Text style={styles.attachButtonText}>添加截图（可选）</Text>
         </TouchableOpacity>
         {image && (
           <View style={styles.imagePreviewContainer}>
             <Image source={{ uri: image }} style={styles.imagePreview} />
             <TouchableOpacity
-              style={styles.removeImageBtn}
-              onPress={() => setImage(null)}
+              style={styles.removeImageButton}
+              onPress={() => {
+                setImage(null)
+                setImageBase64(null)
+              }}
             >
               <Ionicons name="close-circle" size={20} color="#FF4757" />
             </TouchableOpacity>
@@ -434,7 +366,9 @@ export function SmartQA() {
                   <Ionicons name="copy-outline" size={20} color={theme.primaryColor} />
                 </TouchableOpacity>
               </View>
-              <Text style={styles.replyContent}>{reply.content}</Text>
+              <Markdown style={markdownStyles(theme)}>
+                {reply.content}
+              </Markdown>
               <TouchableOpacity
                 style={styles.saveButton}
                 onPress={async () => {
@@ -533,24 +467,18 @@ const getStyles = (theme: any) => StyleSheet.create({
     color: theme.primaryColor,
     fontWeight: '500',
   },
-  imageAttached: {
-    fontSize: 14,
-    color: theme.primaryColor,
-    marginTop: 8,
-  },
   imagePreviewContainer: {
-    position: 'relative',
     marginTop: 12,
+    position: 'relative',
     alignSelf: 'flex-start',
   },
   imagePreview: {
-    width: 100,
-    height: 100,
+    width: 120,
+    height: 120,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: theme.borderColor,
+    resizeMode: 'cover',
   },
-  removeImageBtn: {
+  removeImageButton: {
     position: 'absolute',
     top: -8,
     right: -8,
@@ -735,5 +663,75 @@ const getStyles = (theme: any) => StyleSheet.create({
     fontSize: 16,
     color: theme.buttonText,
     fontWeight: '500',
+  },
+})
+
+// Markdown 渲染样式
+const markdownStyles = (theme: any) => ({
+  paragraph: {
+    color: theme.textColor,
+    fontSize: 15,
+    lineHeight: 24,
+  },
+  strong: {
+    color: theme.textColor,
+    fontWeight: 'bold',
+  },
+  em: {
+    color: theme.textColor,
+    fontStyle: 'italic',
+  },
+  blockquote: {
+    borderLeftColor: theme.primaryColor,
+    borderLeftWidth: 3,
+    paddingLeft: 12,
+    backgroundColor: theme.cardBackground,
+    marginLeft: 0,
+  },
+  blockquote_node: {
+    color: theme.textColor,
+  },
+  code_inline: {
+    backgroundColor: theme.primaryColor + '20',
+    color: theme.primaryColor,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    fontSize: 14,
+    fontFamily: 'monospace',
+  },
+  code_block: {
+    backgroundColor: theme.primaryColor + '20',
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 8,
+  },
+  code_block_content: {
+    color: theme.textColor,
+    fontSize: 14,
+    fontFamily: 'monospace',
+  },
+  fence: {
+    backgroundColor: theme.primaryColor + '20',
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 8,
+  },
+  fence_content: {
+    color: theme.textColor,
+    fontSize: 14,
+    fontFamily: 'monospace',
+  },
+  link: {
+    color: theme.primaryColor,
+  },
+  bullet_list: {
+    color: theme.textColor,
+  },
+  ordered_list: {
+    color: theme.textColor,
+  },
+  list_item: {
+    color: theme.textColor,
   },
 })

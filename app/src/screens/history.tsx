@@ -14,6 +14,8 @@ import { ThemeContext } from '../context'
 import { historyService } from '../services/historyService'
 import { HistoryRecord, UsageStats } from '../types/history'
 import Ionicons from '@expo/vector-icons/Ionicons'
+import Markdown from '@ronradtke/react-native-markdown-display'
+import * as Clipboard from 'expo-clipboard'
 
 export function History() {
   const [stats, setStats] = useState<UsageStats | null>(null)
@@ -182,6 +184,26 @@ export function History() {
     )
   }
 
+  const copyResultToClipboard = async () => {
+    if (!selectedRecord?.result) return
+    try {
+      await Clipboard.setStringAsync(selectedRecord.result)
+      Alert.alert('提示', '已复制到剪贴板')
+    } catch (error) {
+      Alert.alert('提示', '复制失败')
+    }
+  }
+
+  const copyPromptToClipboard = async () => {
+    if (!selectedRecord?.prompt) return
+    try {
+      await Clipboard.setStringAsync(selectedRecord.prompt)
+      Alert.alert('提示', '已复制到剪贴板')
+    } catch (error) {
+      Alert.alert('提示', '复制失败')
+    }
+  }
+
   const renderRecordItem = ({ item }: { item: HistoryRecord }) => (
     <TouchableOpacity style={styles.recordCard} onPress={() => handleRecordPress(item)}>
       <View style={styles.recordHeader}>
@@ -287,13 +309,15 @@ export function History() {
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setEditModalVisible(false)}>
-              <Text style={styles.modalCancel}>取消</Text>
+            <TouchableOpacity
+              style={styles.modalBackButton}
+              onPress={() => setEditModalVisible(false)}
+            >
+              <Ionicons name="chevron-back" size={24} color={theme.primaryColor} />
+              <Text style={styles.modalBackText}>返回</Text>
             </TouchableOpacity>
-            <Text style={styles.modalTitle}>编辑记录</Text>
-            <TouchableOpacity onPress={handleSaveEdit}>
-              <Text style={styles.modalSave}>保存</Text>
-            </TouchableOpacity>
+            <Text style={styles.modalTitle}>记录详情</Text>
+            <View style={{ width: 60 }} />
           </View>
 
           <ScrollView style={styles.modalContent}>
@@ -324,19 +348,31 @@ export function History() {
 
             {selectedRecord?.result && (
               <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>生成结果</Text>
+                <View style={styles.resultHeader}>
+                  <Text style={styles.inputLabel}>生成结果</Text>
+                  <TouchableOpacity style={styles.copyButton} onPress={copyResultToClipboard}>
+                    <Ionicons name="copy-outline" size={16} color={theme.primaryColor} />
+                    <Text style={styles.copyButtonText}>复制结果</Text>
+                  </TouchableOpacity>
+                </View>
                 <ScrollView style={styles.resultContainer} nestedScrollEnabled>
-                  <Text style={styles.resultText} selectable>
+                  <Markdown style={markdownStyles(theme)}>
                     {selectedRecord.result}
-                  </Text>
+                  </Markdown>
                 </ScrollView>
               </View>
             )}
 
-            <TouchableOpacity style={styles.deleteButton} onPress={handleDeleteRecord}>
-              <Ionicons name="trash-outline" size={20} color="#fff" />
-              <Text style={styles.deleteButtonText}>删除记录</Text>
-            </TouchableOpacity>
+            <View style={styles.actionButtons}>
+              <TouchableOpacity style={styles.actionButton} onPress={copyPromptToClipboard}>
+                <Ionicons name="document-text-outline" size={20} color={theme.primaryColor} />
+                <Text style={styles.actionButtonText}>复制输入</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actionButton, styles.actionButtonDelete]} onPress={handleDeleteRecord}>
+                <Ionicons name="trash-outline" size={20} color="#fff" />
+                <Text style={[styles.actionButtonText, { color: '#fff' }]}>删除</Text>
+              </TouchableOpacity>
+            </View>
           </ScrollView>
         </View>
       </Modal>
@@ -568,5 +604,147 @@ const getStyles = (theme: any) => StyleSheet.create({
     fontSize: 14,
     color: theme.textColor,
     lineHeight: 22,
+  },
+  resultHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  copyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: theme.primaryColor + '15',
+    borderRadius: 16,
+  },
+  copyButtonText: {
+    fontSize: 13,
+    color: theme.primaryColor,
+    fontWeight: '500',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    backgroundColor: theme.cardBackground,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: theme.borderColor,
+  },
+  actionButtonDelete: {
+    backgroundColor: '#FF4757',
+    borderColor: '#FF4757',
+  },
+  actionButtonText: {
+    fontSize: 14,
+    color: theme.textColor,
+    fontWeight: '500',
+  },
+  deleteButtonText: {
+    color: '#fff',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: theme.backgroundColor,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.borderColor,
+  },
+  modalContent: {
+    flex: 1,
+    padding: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.textColor,
+  },
+  modalBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  modalBackText: {
+    fontSize: 16,
+    color: theme.primaryColor,
+  },
+})
+
+// Markdown 渲染样式
+const markdownStyles = (theme: any) => ({
+  paragraph: {
+    color: theme.textColor,
+    fontSize: 14,
+    lineHeight: 22,
+  },
+  strong: {
+    color: theme.textColor,
+    fontWeight: 'bold',
+  },
+  em: {
+    color: theme.textColor,
+    fontStyle: 'italic',
+  },
+  blockquote: {
+    borderLeftColor: theme.primaryColor,
+    borderLeftWidth: 3,
+    paddingLeft: 12,
+    backgroundColor: theme.backgroundColor,
+    marginLeft: 0,
+  },
+  blockquote_node: {
+    color: theme.textColor,
+  },
+  code_inline: {
+    backgroundColor: theme.primaryColor + '20',
+    color: theme.primaryColor,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    fontSize: 13,
+    fontFamily: 'monospace',
+  },
+  code_block: {
+    backgroundColor: theme.primaryColor + '20',
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 8,
+  },
+  code_block_content: {
+    color: theme.textColor,
+    fontSize: 13,
+    fontFamily: 'monospace',
+  },
+  fence: {
+    backgroundColor: theme.primaryColor + '20',
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 8,
+  },
+  fence_content: {
+    color: theme.textColor,
+    fontSize: 13,
+    fontFamily: 'monospace',
+  },
+  link: {
+    color: theme.primaryColor,
   },
 })
