@@ -1,4 +1,6 @@
-// React Native 标准fetch API请求（流式响应）
+// React Native 标准fetch API请求（模拟流式响应）
+// 注意：React Native 的 fetch polyfill 不支持真正的流式读取
+// 我们使用分段处理文本的方式模拟流式效果
 export async function fetchStream({
   headers,
   body,
@@ -34,14 +36,9 @@ export async function fetchStream({
   // 如果提供了 API key，使用它；否则使用默认值
   if (apiKey) {
     requestHeaders['Authorization'] = `Bearer ${apiKey}`
-    console.log('✅ API Key added to headers:', apiKey.substring(0, 10) + '...')
-  } else {
-    console.log('❌ No API Key provided, using default')
   }
 
   console.log('Request URL:', apiUrl)
-  console.log('Request headers:', JSON.stringify(requestHeaders, null, 2))
-  console.log('Timeout:', timeout, 'ms')
   console.log('Stream mode:', body.stream ? 'ENABLED' : 'DISABLED')
 
   if (onOpen) onOpen()
@@ -65,14 +62,17 @@ export async function fetchStream({
       throw new Error(`HTTP error! status: ${response.status}`)
     }
 
-    // 流式处理响应
-    if (body.stream) {
-      console.log('🚀 Starting stream processing...')
-      // 直接获取文本，不使用复杂的 Reader API
-      const text = await response.text()
-      console.log('📝 Raw response length:', text.length)
+    // 获取完整响应文本
+    const fullText = await response.text()
+    console.log('📝 Response received, length:', fullText.length)
 
-      const lines = text.split(/\r?\n/)
+    // 解析响应格式
+    let content = ''
+
+    // 检查是否是 SSE 格式 (data: {...})
+    if (fullText.includes('data: ')) {
+      console.log('📡 Detected SSE format')
+      const lines = fullText.split(/\r?\n/)
       for (const line of lines) {
         const trimmed = line.trim()
         if (!trimmed || !trimmed.startsWith('data: ')) continue
@@ -80,23 +80,107 @@ export async function fetchStream({
         const data = trimmed.slice(6).trim()
         if (data === '[DONE]' || data === '') continue
 
-        // 只解析有效的JSON数据
-        if (!/^[{\[]/.test(data)) {
-          console.warn('⚠️ Skipping non-JSON:', data.substring(0, 50))
-          continue
-        }
-
         try {
           const parsed = JSON.parse(data)
-          if (onMessage) onMessage(parsed)
+          // 只提取 content，不要 reasoning_content（思维链）
+          const delta = parsed.choices?.[0]?.delta?.content || parsed.choices?.[0]?.message?.content || ''
+
+          if (delta) {
+            content += delta
+            if (onMessage) {
+              // 构建模拟的流式数据
+              onMessage({
+                choices: [{
+                  delta: { content: delta },
+                  finish_reason: null
+                }]
+              })
+            }
+          }
         } catch (e: any) {
-          console.error('❌ JSON parse error:', data.substring(0, 50), e.message)
+          // 忽略解析错误，但记录到日志
+          console.log('⚠️ Parse skip:', data.substring(0, 50))
         }
       }
-    } else {
-      // 非流式响应
-      const data = await response.json()
-      if (onMessage) onMessage(data)
+    }
+    // 检查是否是 OpenAI 格式的流式响应
+    else if (fullText.includes('"object":"chat.completion.chunk"')) {
+      console.log('📡 Detected OpenAI streaming format')
+      try {
+        // 尝试解析为 NDJSON 格式
+        const lines = fullText.split(/\r?\n/).filter(l => l.trim())
+        for (const line of lines) {
+          if (!line.trim()) continue
+          try {
+            const parsed = JSON.parse(line)
+            // 只提取 content，不要 reasoning_content
+            const delta = parsed.choices?.[0]?.delta?.content || ''
+            const finish_reason = parsed.choices?.[0]?.finish_reason
+
+            if (delta) {
+              content += delta
+              if (onMessage) {
+                onMessage({
+                  choices: [{
+                    delta: { content: delta },
+                    finish_reason: finish_reason || null
+                  }]
+                })
+              }
+            }
+          } catch (e) {
+            // 忽略解析错误
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to parse OpenAI format')
+      }
+    }
+    // 非流式响应 - 一次性返回完整结果
+    else {
+      console.log('📦 Non-streaming response detected')
+      try {
+        const parsed = JSON.parse(fullText)
+        content = parsed.choices?.[0]?.message?.content || parsed.choices?.[0]?.text || ''
+
+        // 模拟流式输出：逐字或逐词发送
+        if (content && onMessage) {
+          // 发送空的开始消息
+          onMessage({
+            choices: [{
+              delta: { content: '' },
+              finish_reason: null
+            }]
+          })
+
+          // 按字符或小段模拟流式
+          const chars = content.split('')
+          for (let i = 0; i < chars.length; i++) {
+            // 批量发送以提高性能（每10个字符发送一次）
+            if (i % 10 === 0 || i === chars.length - 1) {
+              const chunk = chars.slice(Math.max(0, i - 9), i + 1).join('')
+              onMessage({
+                choices: [{
+                  delta: { content: chunk },
+                  finish_reason: null
+                }]
+              })
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to parse response:', e)
+      }
+    }
+
+    // 发送完成信号
+    if (content && onMessage) {
+      onMessage({
+        choices: [{
+          delta: { content: '' },
+          finish_reason: 'stop'
+        }]
+      })
     }
 
     clearTimeout(timeoutId)
