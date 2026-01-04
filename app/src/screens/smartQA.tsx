@@ -7,18 +7,18 @@ import {
   TextInput,
   Image,
   Alert,
+  ActivityIndicator,
 } from 'react-native'
 import { useState, useContext } from 'react'
 import { ThemeContext } from '../context'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import * as ImagePicker from 'expo-image-picker'
 import * as Clipboard from 'expo-clipboard'
-import { Buffer } from 'buffer'
 import Markdown from '@ronradtke/react-native-markdown-display'
-import { MODELS } from '../../constants'
 import { fetchStream } from '../utils'
 import { API_KEYS } from '../../constants'
 import { historyService } from '../services/historyService'
+import { useActionSheet } from '@expo/react-native-action-sheet'
 
 interface ReplyOption {
   id: string
@@ -66,6 +66,39 @@ const REPLY_STYLES = [
   { key: 'direct', label: '直接型', description: '快速解决问题' },
 ]
 
+// 内容分段函数（用于选择性复制）
+const parseContents = (content: string): string[] => {
+  if (!content || typeof content !== 'string') return []
+
+  // 尝试使用 --- 分割
+  if (content.includes('---')) {
+    return content.split('---').map(s => s.trim()).filter(s => s.length > 0)
+  }
+
+  // 尝试使用数字序号分割
+  const numberPattern = /^\d+\.|\d+、/m
+  if (numberPattern.test(content)) {
+    const parts = content.split(/^\d+\.|\d+、/m).map(s => s.trim()).filter(s => s.length > 0)
+    if (parts.length > 1) return parts
+  }
+
+  // 尝试使用emoji分割
+  const emojiPattern = /^[📋🔍💡✨⭐️🎯📌📝🗒️]/m
+  if (emojiPattern.test(content)) {
+    const parts = content.split(/^[📋🔍💡✨⭐️🎯📌📝🗒️]/m).map(s => s.trim()).filter(s => s.length > 0)
+    if (parts.length > 1) return parts
+  }
+
+  // 尝试使用章节标题分割（## 开头）
+  if (content.includes('##')) {
+    const parts = content.split(/^##\s+/m).map(s => s.trim()).filter(s => s.length > 0)
+    if (parts.length > 1) return parts
+  }
+
+  // 默认返回整个内容作为一个段落
+  return [content]
+}
+
 export function SmartQA() {
   const [loading, setLoading] = useState(false)
   const [abortController, setAbortController] = useState<AbortController | null>(null)
@@ -76,9 +109,48 @@ export function SmartQA() {
   const [replyStyle, setReplyStyle] = useState<string>('professional')
   const [replyOptions, setReplyOptions] = useState<ReplyOption[]>([])
   const [selectedReply, setSelectedReply] = useState<string | null>(null)
+  // 追问功能状态
+  const [followUpQuestion, setFollowUpQuestion] = useState('')
+  const [followUpLoading, setFollowUpLoading] = useState(false)
+  // 选择文本弹窗状态
+  const [showSelectionModal, setShowSelectionModal] = useState(false)
+  const [selectionContent, setSelectionContent] = useState('')
+  const [selectedReplyId, setSelectedReplyId] = useState<string | null>(null)
 
+  const { showActionSheetWithOptions } = useActionSheet()
   const { theme } = useContext(ThemeContext)
   const styles = getStyles(theme)
+
+  // 新开对话
+  const handleNewConversation = () => {
+    Alert.alert(
+      '新开对话',
+      '确定要开始新的对话吗？当前对话将被清空。',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '确定',
+          onPress: () => {
+            setQuestion('')
+            setImage(null)
+            setImageBase64(null)
+            setReplyOptions([])
+            setLoading(false)
+            setFollowUpLoading(false)
+            setSelectedReply(null)
+            setFollowUpQuestion('')
+          }
+        }
+      ]
+    )
+  }
+
+  // 显示文本选择弹窗
+  const showTextSelectionMenu = (content: string, replyId?: string) => {
+    setSelectionContent(content)
+    setSelectedReplyId(replyId || null)
+    setShowSelectionModal(true)
+  }
 
   // 停止响应
   const stopResponse = () => {
@@ -171,7 +243,6 @@ export function SmartQA() {
           top_p: 1,
           stream: true
         },
-        type: 'openai',
         apiKey: API_KEYS.GEMINI,
         onOpen: () => {
           console.log("Open streaming connection.")
@@ -200,7 +271,7 @@ export function SmartQA() {
         onError: (error) => {
           console.error('Streaming error:', error)
           setLoading(false)
-          alert('生成失败，请重试')
+          Alert.alert('提示', '生成失败，请重试')
         },
         onClose: async () => {
           console.log('Stream closed')
@@ -230,9 +301,147 @@ export function SmartQA() {
   const copyToClipboard = async (content: string) => {
     try {
       await Clipboard.setStringAsync(content)
-      alert('已复制到剪贴板')
+      Alert.alert('提示', '已复制到剪贴板')
     } catch (error) {
-      alert('复制失败：' + error.message)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      Alert.alert('提示', '复制失败：' + errorMessage)
+    }
+  }
+
+  // 显示操作菜单
+  const showReplyActionsheet = (reply: ReplyOption) => {
+    const options = ['复制全部', '选择复制', '追问', '保存到话术库', '取消']
+    const cancelButtonIndex = 4
+
+    showActionSheetWithOptions({
+      options,
+      cancelButtonIndex,
+    }, (selectedIndex) => {
+      switch (selectedIndex) {
+        case 0: // 复制全部
+          copyToClipboard(reply.content)
+          break
+        case 1: // 选择复制
+          showTextSelectionMenu(reply.content)
+          break
+        case 2: // 追问
+          setFollowUpQuestion('')
+          setSelectedReply(reply.id)
+          break
+        case 3: // 保存到话术库
+          handleSaveToLibrary(reply)
+          break
+        default:
+          break
+      }
+    })
+  }
+
+  // 保存到话术库
+  const handleSaveToLibrary = async (reply: ReplyOption) => {
+    try {
+      await historyService.saveRecord({
+        type: 'qa',
+        title: `问答收藏 - ${question.substring(0, 20)}...`,
+        prompt: `问题：${question}\n场景：${scenario}\n风格：${replyStyle}`,
+        result: reply.content,
+      })
+      Alert.alert('提示', '已保存到话术库')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      Alert.alert('提示', '保存失败：' + errorMessage)
+    }
+  }
+
+  // 追问功能 - 生成完整新回复
+  const handleFollowUp = async () => {
+    if (!followUpQuestion.trim()) {
+      Alert.alert('提示', '请输入追问内容')
+      return
+    }
+    if (!selectedReply) {
+      Alert.alert('提示', '请先选择一个回复')
+      return
+    }
+
+    setFollowUpLoading(true)
+    try {
+      const selectedReplyContent = replyOptions.find(r => r.id === selectedReply)?.content || ''
+
+      // 直接生成完整的新回复，替换原有回复
+      const systemPrompt = `你是一位专业的医美客服咨询顾问。
+
+客户原始问题：${question}
+场景：${scenario}
+风格：${replyStyle}
+原始回复：${selectedReplyContent}
+
+用户追问：${followUpQuestion}
+
+请根据用户的追问，生成一个完整、专业的医美咨询回复。直接输出优化后的完整回复，不需要添加任何说明文字或分隔符。`
+
+      const messages = [
+        {
+          role: 'user' as const,
+          content: [
+            { type: 'text' as const, text: systemPrompt }
+          ]
+        }
+      ]
+
+      let localResponse = ''
+
+      // 先清空选中的回复内容，表示正在重新生成
+      setReplyOptions(prev => prev.map(r =>
+        r.id === selectedReply ? { ...r, content: '' } : r
+      ))
+
+      await fetchStream({
+        body: {
+          messages,
+          model: 'gemini-3-flash-preview',
+          temperature: 0.5,
+          top_p: 1,
+          stream: true
+        },
+        apiKey: API_KEYS.GEMINI,
+        onOpen: () => {
+          console.log("Open streaming connection.")
+        },
+        onMessage: (data) => {
+          try {
+            if (data.choices && data.choices[0]?.delta?.content) {
+              const newContent = data.choices[0].delta.content
+              localResponse += newContent
+              // 更新当前选中的回复内容
+              setReplyOptions(prev => prev.map(r =>
+                r.id === selectedReply ? { ...r, content: localResponse } : r
+              ))
+            }
+          } catch (error) {
+            console.error('Failed to parse stream data:', error)
+          }
+        },
+        onError: (error) => {
+          console.error('Streaming error:', error)
+          // 恢复原始内容
+          setReplyOptions(prev => prev.map(r =>
+            r.id === selectedReply ? { ...r, content: selectedReplyContent } : r
+          ))
+          setFollowUpLoading(false)
+          Alert.alert('提示', '追问失败，请重试')
+        },
+        onClose: async () => {
+          console.log('Stream closed')
+          setFollowUpLoading(false)
+          setFollowUpQuestion('')
+          Alert.alert('提示', '追问完成，回复已更新')
+        }
+      })
+    } catch (error) {
+      console.error('追问失败:', error)
+      Alert.alert('提示', '追问失败，请重试')
+      setFollowUpLoading(false)
     }
   }
 
@@ -275,7 +484,18 @@ export function SmartQA() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🎯 沟通场景</Text>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>🎯 沟通场景</Text>
+          {replyOptions.length > 0 && (
+            <TouchableOpacity
+              style={styles.newChatButton}
+              onPress={handleNewConversation}
+            >
+              <Ionicons name="add-circle-outline" size={18} color={theme.primaryColor} />
+              <Text style={styles.newChatButtonText}>新开对话</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <View style={styles.scenarioGrid}>
           {SCENARIOS.map((s) => (
             <TouchableOpacity
@@ -348,7 +568,8 @@ export function SmartQA() {
 
       {replyOptions.length > 0 && !loading && (
         <View style={styles.repliesContainer}>
-          <Text style={styles.repliesTitle}>✨ 5种回复选项</Text>
+          <Text style={styles.repliesTitle}>✨ 回复选项</Text>
+          <Text style={styles.hintText}>💡 点击选中卡片，长按弹出操作菜单</Text>
           {replyOptions.map((reply) => (
             <TouchableOpacity
               key={reply.id}
@@ -357,52 +578,143 @@ export function SmartQA() {
                 selectedReply === reply.id && styles.replyCardSelected
               ]}
               onPress={() => setSelectedReply(reply.id)}
+              onLongPress={() => showReplyActionsheet(reply)}
+              delayLongPress={300}
             >
               <View style={styles.replyHeader}>
                 <Text style={styles.replyStyle}>{reply.style}</Text>
-                <TouchableOpacity
-                  onPress={() => copyToClipboard(reply.content)}
-                >
-                  <Ionicons name="copy-outline" size={20} color={theme.primaryColor} />
-                </TouchableOpacity>
+                <View style={styles.replyActions}>
+                  <TouchableOpacity
+                    onPress={() => copyToClipboard(reply.content)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Ionicons name="copy-outline" size={20} color={theme.primaryColor} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setFollowUpQuestion('')
+                      setSelectedReply(reply.id)
+                    }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Ionicons name="chatbubble-ellipses-outline" size={20} color={theme.primaryColor} />
+                  </TouchableOpacity>
+                </View>
               </View>
-              <Markdown style={markdownStyles(theme)}>
-                {reply.content}
-              </Markdown>
-              <TouchableOpacity
-                style={styles.saveButton}
-                onPress={async () => {
-                  try {
-                    await historyService.saveRecord({
-                      type: 'qa',
-                      title: `问答收藏 - ${question.substring(0, 20)}...`,
-                      prompt: `问题：${question}\n场景：${scenario}\n风格：${replyStyle}`,
-                      result: reply.content,
-                    })
-                    Alert.alert('提示', '已保存到话术库')
-                  } catch (error) {
-                    Alert.alert('提示', '保存失败：' + error.message)
-                  }
-                }}
-              >
-                <Ionicons name="bookmark-outline" size={16} color={theme.primaryColor} />
-                <Text style={styles.saveButtonText}>保存到话术库</Text>
-              </TouchableOpacity>
+
+              {/* 分割显示各部分内容 */}
+              <View style={styles.contentSections}>
+                {parseContents(reply.content).map((content, index) => (
+                  <View key={index} style={styles.contentSection}>
+                    <View style={styles.contentHeader}>
+                      <Text style={styles.contentTitle}>第 {index + 1} 部分</Text>
+                      <TouchableOpacity
+                        style={styles.copyBtn}
+                        onPress={() => copyToClipboard(content)}
+                      >
+                        <Ionicons name="copy-outline" size={14} color={theme.primaryColor} />
+                        <Text style={styles.copyBtnText}>复制</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Markdown style={markdownStyles(theme)}>{content}</Markdown>
+                    {/* 选择复制按钮 */}
+                    <TouchableOpacity
+                      style={styles.selectButton}
+                      onPress={() => showTextSelectionMenu(content)}
+                    >
+                      <Ionicons name="text-outline" size={14} color={theme.primaryColor} />
+                      <Text style={styles.selectButtonText}>选择复制</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
             </TouchableOpacity>
           ))}
         </View>
       )}
 
+      {/* 选择文本弹窗 */}
+      {showSelectionModal && selectionContent && (
+        <View
+          style={styles.selectionModal}
+        >
+          <View
+            style={styles.selectionModalContent}
+          >
+            <View style={styles.selectionModalHeader}>
+              <Text style={styles.selectionModalTitle}>长按选择文字复制</Text>
+              <TouchableOpacity onPress={() => setShowSelectionModal(false)}>
+                <Ionicons name="close" size={24} color={theme.textColor} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.selectionScrollContent}>
+              <TextInput
+                ref={(ref: TextInput | null) => {
+                  // Auto-focus when modal opens
+                  setTimeout(() => ref?.focus(), 100)
+                }}
+                style={styles.selectionInput}
+                value={selectionContent}
+                multiline={true}
+                selectTextOnFocus={true}
+              />
+            </View>
+            <View style={styles.selectionModalFooter}>
+              <TouchableOpacity
+                style={styles.selectionFollowUpButton}
+                onPress={() => {
+                  setShowSelectionModal(false)
+                  setFollowUpQuestion('')
+                  setSelectedReply(selectedReplyId)
+                }}
+              >
+                <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.primaryColor} />
+                <Text style={styles.selectionFollowUpButtonText}>追问优化</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* 追问输入区域 */}
       {selectedReply && (
-        <View style={styles.selectedContainer}>
-          <Text style={styles.selectedTitle}>已选择回复</Text>
-          <Text style={styles.selectedText}>
-            {replyOptions.find(r => r.id === selectedReply)?.content}
-          </Text>
-          <TouchableOpacity style={styles.customizeButton}>
-            <Ionicons name="create-outline" size={20} color={theme.buttonText} />
-            <Text style={styles.customizeButtonText}>自定义编辑</Text>
-          </TouchableOpacity>
+        <View style={styles.followUpContainer}>
+          <Text style={styles.followUpTitle}>💬 追问优化</Text>
+          <Text style={styles.followUpHint}>输入追问内容，AI将优化已选择的回复</Text>
+          <TextInput
+            style={[styles.input, styles.followUpInput]}
+            placeholder="输入追问内容，例如：'再专业一点'、'加入价格信息'..."
+            placeholderTextColor={theme.placeholderColor}
+            value={followUpQuestion}
+            onChangeText={setFollowUpQuestion}
+            multiline
+            numberOfLines={3}
+          />
+          <View style={styles.followUpButtons}>
+            <TouchableOpacity
+              style={[styles.followUpButton, styles.cancelButton]}
+              onPress={() => {
+                setSelectedReply(null)
+                setFollowUpQuestion('')
+              }}
+            >
+              <Text style={styles.cancelButtonText}>取消</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.followUpButton, styles.submitButton]}
+              onPress={handleFollowUp}
+              disabled={followUpLoading}
+            >
+              {followUpLoading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="sparkles-outline" size={18} color="#fff" />
+                  <Text style={styles.submitButtonText}>优化回复</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       )}
     </ScrollView>
@@ -433,6 +745,12 @@ const getStyles = (theme: any) => StyleSheet.create({
     padding: 20,
     borderBottomWidth: 1,
     borderBottomColor: theme.borderColor,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   sectionTitle: {
     fontSize: 18,
@@ -613,22 +931,54 @@ const getStyles = (theme: any) => StyleSheet.create({
     fontWeight: '600',
     color: theme.primaryColor,
   },
+  replyActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  contentSections: {
+    marginTop: 8,
+  },
+  contentSection: {
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.borderColor,
+  },
+  contentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  contentTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: theme.primaryColor,
+  },
+  copyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: theme.primaryColor + '20',
+    borderRadius: 12,
+  },
+  copyBtnText: {
+    fontSize: 12,
+    color: theme.primaryColor,
+    fontWeight: '500',
+  },
   replyContent: {
     fontSize: 15,
     color: theme.textColor,
     lineHeight: 24,
+  },
+  hintText: {
+    fontSize: 12,
+    color: theme.placeholderColor,
     marginBottom: 12,
-  },
-  saveButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    alignSelf: 'flex-start',
-  },
-  saveButtonText: {
-    fontSize: 14,
-    color: theme.primaryColor,
-    fontWeight: '500',
+    fontStyle: 'italic',
   },
   selectedContainer: {
     margin: 20,
@@ -664,6 +1014,176 @@ const getStyles = (theme: any) => StyleSheet.create({
     color: theme.buttonText,
     fontWeight: '500',
   },
+  // 追问相关样式
+  followUpContainer: {
+    margin: 20,
+    padding: 16,
+    backgroundColor: theme.cardBackground,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: theme.primaryColor,
+  },
+  followUpTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.primaryColor,
+    marginBottom: 8,
+  },
+  followUpHint: {
+    fontSize: 13,
+    color: theme.placeholderColor,
+    marginBottom: 12,
+    fontStyle: 'italic',
+  },
+  followUpInput: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  followUpButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    marginTop: 12,
+  },
+  followUpButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  cancelButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: theme.borderColor,
+  },
+  cancelButtonText: {
+    fontSize: 14,
+    color: theme.textColor,
+  },
+  submitButton: {
+    backgroundColor: theme.primaryColor,
+  },
+  submitButtonText: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  // 选择文本弹窗样式
+  selectionModal: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  selectionModalContent: {
+    width: '90%',
+    maxHeight: '70%',
+    backgroundColor: theme.cardBackground,
+    borderRadius: 16,
+    overflow: 'hidden',
+    flexDirection: 'column',
+  },
+  selectionModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.borderColor,
+  },
+  selectionModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: theme.textColor,
+  },
+  selectionScrollContent: {
+    flex: 1,
+    maxHeight: 400,
+    padding: 16,
+  },
+  selectionInput: {
+    flex: 1,
+    fontSize: 15,
+    color: theme.textColor,
+    lineHeight: 24,
+    textAlignVertical: 'top',
+    padding: 0,
+  },
+  selectionModalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: theme.borderColor,
+  },
+  selectionCopyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: theme.primaryColor,
+    borderRadius: 8,
+  },
+  selectionCopyButtonText: {
+    fontSize: 14,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  selectionFollowUpButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: theme.cardBackground,
+    borderWidth: 1,
+    borderColor: theme.primaryColor,
+    borderRadius: 8,
+  },
+  selectionFollowUpButtonText: {
+    fontSize: 14,
+    color: theme.primaryColor,
+    fontWeight: '600',
+  },
+  // 选择按钮样式
+  selectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: theme.primaryColor + '15',
+  },
+  selectButtonText: {
+    fontSize: 12,
+    color: theme.primaryColor,
+  },
+  newChatButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: theme.primaryColor + '15',
+  },
+  newChatButtonText: {
+    fontSize: 13,
+    color: theme.primaryColor,
+    fontWeight: '500',
+  },
 })
 
 // Markdown 渲染样式
@@ -675,11 +1195,11 @@ const markdownStyles = (theme: any) => ({
   },
   strong: {
     color: theme.textColor,
-    fontWeight: 'bold',
+    fontWeight: '600' as const,
   },
   em: {
     color: theme.textColor,
-    fontStyle: 'italic',
+    fontStyle: 'italic' as const,
   },
   blockquote: {
     borderLeftColor: theme.primaryColor,
