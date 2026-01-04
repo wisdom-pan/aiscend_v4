@@ -104,6 +104,34 @@ export function ContentGenerator() {
     setLoading(false)
   }
 
+  // 新开对话
+  const handleNewConversation = () => {
+    Alert.alert(
+      '新开对话',
+      '确定要开始新的对话吗？当前对话将被清空。',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '确定',
+          onPress: () => {
+            setMessages([{
+              id: generateId(),
+              type: 'assistant',
+              content: '您好！我是AI内容创作助手。请选择人设风格，填写内容关键词，我将为您生成专业的医美内容。',
+              createdAt: new Date().toISOString(),
+              isComplete: true
+            }])
+            setImages([])
+            setKeywords('')
+            setFollowUpInput('')
+            setShowSettings(true)
+            setLoading(false)
+          }
+        }
+      ]
+    )
+  }
+
   // 多图上传
   const pickImages = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -616,6 +644,13 @@ export function ContentGenerator() {
       {/* 对话列表 */}
       {!showSettings && (
         <>
+          <View style={styles.chatHeader}>
+            <Text style={styles.chatHeaderTitle}>当前对话</Text>
+            <TouchableOpacity style={styles.newChatButton} onPress={handleNewConversation}>
+              <Ionicons name="add-circle-outline" size={18} color={theme.primaryColor} />
+              <Text style={styles.newChatButtonText}>新开对话</Text>
+            </TouchableOpacity>
+          </View>
           <FlatList
             ref={flatListRef}
             data={messages}
@@ -669,6 +704,33 @@ const getStyles = (theme: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.backgroundColor,
+  },
+  chatHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.borderColor,
+  },
+  chatHeaderTitle: {
+    fontSize: 14,
+    color: theme.textColor,
+    fontWeight: '500',
+  },
+  newChatButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: theme.primaryColor + '15',
+  },
+  newChatButtonText: {
+    fontSize: 13,
+    color: theme.primaryColor,
+    fontWeight: '500',
   },
   settingsPanel: {
     flex: 1,

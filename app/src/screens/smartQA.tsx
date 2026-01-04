@@ -121,6 +121,30 @@ export function SmartQA() {
   const { theme } = useContext(ThemeContext)
   const styles = getStyles(theme)
 
+  // 新开对话
+  const handleNewConversation = () => {
+    Alert.alert(
+      '新开对话',
+      '确定要开始新的对话吗？当前对话将被清空。',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '确定',
+          onPress: () => {
+            setQuestion('')
+            setImage(null)
+            setImageBase64(null)
+            setReplyOptions([])
+            setLoading(false)
+            setFollowUpLoading(false)
+            setSelectedReply(null)
+            setFollowUpQuestion('')
+          }
+        }
+      ]
+    )
+  }
+
   // 显示文本选择弹窗
   const showTextSelectionMenu = (content: string, replyId?: string) => {
     setSelectionContent(content)
@@ -329,7 +353,7 @@ export function SmartQA() {
     }
   }
 
-  // 追问功能
+  // 追问功能 - 生成完整新回复
   const handleFollowUp = async () => {
     if (!followUpQuestion.trim()) {
       Alert.alert('提示', '请输入追问内容')
@@ -344,15 +368,17 @@ export function SmartQA() {
     try {
       const selectedReplyContent = replyOptions.find(r => r.id === selectedReply)?.content || ''
 
+      // 直接生成完整的新回复，替换原有回复
       const systemPrompt = `你是一位专业的医美客服咨询顾问。
 
-当前对话背景：
-- 客户问题：${question}
-- 场景：${scenario}
-- 风格：${replyStyle}
-- 已生成的回复：${selectedReplyContent}
+客户原始问题：${question}
+场景：${scenario}
+风格：${replyStyle}
+原始回复：${selectedReplyContent}
 
-现在需要针对以上回复进行追问优化，请根据用户的追问内容(${followUpQuestion})，优化这个回复，使回复更加完善、有针对性。`
+用户追问：${followUpQuestion}
+
+请根据用户的追问，生成一个完整、专业的医美咨询回复。直接输出优化后的完整回复，不需要添加任何说明文字或分隔符。`
 
       const messages = [
         {
@@ -364,6 +390,11 @@ export function SmartQA() {
       ]
 
       let localResponse = ''
+
+      // 先清空选中的回复内容，表示正在重新生成
+      setReplyOptions(prev => prev.map(r =>
+        r.id === selectedReply ? { ...r, content: '' } : r
+      ))
 
       await fetchStream({
         body: {
@@ -382,9 +413,9 @@ export function SmartQA() {
             if (data.choices && data.choices[0]?.delta?.content) {
               const newContent = data.choices[0].delta.content
               localResponse += newContent
-              // 更新当前选中的回复
+              // 更新当前选中的回复内容
               setReplyOptions(prev => prev.map(r =>
-                r.id === selectedReply ? { ...r, content: r.content + '\n\n--- 追问优化 ---\n' + newContent } : r
+                r.id === selectedReply ? { ...r, content: localResponse } : r
               ))
             }
           } catch (error) {
@@ -393,6 +424,10 @@ export function SmartQA() {
         },
         onError: (error) => {
           console.error('Streaming error:', error)
+          // 恢复原始内容
+          setReplyOptions(prev => prev.map(r =>
+            r.id === selectedReply ? { ...r, content: selectedReplyContent } : r
+          ))
           setFollowUpLoading(false)
           Alert.alert('提示', '追问失败，请重试')
         },
@@ -449,7 +484,18 @@ export function SmartQA() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>🎯 沟通场景</Text>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>🎯 沟通场景</Text>
+          {replyOptions.length > 0 && (
+            <TouchableOpacity
+              style={styles.newChatButton}
+              onPress={handleNewConversation}
+            >
+              <Ionicons name="add-circle-outline" size={18} color={theme.primaryColor} />
+              <Text style={styles.newChatButtonText}>新开对话</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         <View style={styles.scenarioGrid}>
           {SCENARIOS.map((s) => (
             <TouchableOpacity
@@ -603,9 +649,14 @@ export function SmartQA() {
             </View>
             <View style={styles.selectionScrollContent}>
               <TextInput
+                ref={(ref: TextInput | null) => {
+                  // Auto-focus when modal opens
+                  setTimeout(() => ref?.focus(), 100)
+                }}
                 style={styles.selectionInput}
                 value={selectionContent}
                 multiline={true}
+                selectTextOnFocus={true}
               />
             </View>
             <View style={styles.selectionModalFooter}>
@@ -694,6 +745,12 @@ const getStyles = (theme: any) => StyleSheet.create({
     padding: 20,
     borderBottomWidth: 1,
     borderBottomColor: theme.borderColor,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   sectionTitle: {
     fontSize: 18,
@@ -912,6 +969,11 @@ const getStyles = (theme: any) => StyleSheet.create({
     color: theme.primaryColor,
     fontWeight: '500',
   },
+  replyContent: {
+    fontSize: 15,
+    color: theme.textColor,
+    lineHeight: 24,
+  },
   hintText: {
     fontSize: 12,
     color: theme.placeholderColor,
@@ -1107,6 +1169,20 @@ const getStyles = (theme: any) => StyleSheet.create({
   selectButtonText: {
     fontSize: 12,
     color: theme.primaryColor,
+  },
+  newChatButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: theme.primaryColor + '15',
+  },
+  newChatButtonText: {
+    fontSize: 13,
+    color: theme.primaryColor,
+    fontWeight: '500',
   },
 })
 

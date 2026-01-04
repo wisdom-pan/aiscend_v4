@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   Image,
   TextInput,
+  Alert,
 } from 'react-native'
 import { useState, useContext } from 'react'
 import { ThemeContext } from '../context'
@@ -50,6 +51,30 @@ export function VideoCreator() {
       setAbortController(null)
     }
     setLoading(false)
+  }
+
+  // 新开对话
+  const handleNewConversation = () => {
+    Alert.alert(
+      '新开对话',
+      '确定要开始新的对话吗？当前对话将被清空。',
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '确定',
+          onPress: () => {
+            setImage(null)
+            setTopic('')
+            setStyle('')
+            setOriginalScript('')
+            setOptimizationNeeds('')
+            setGeneratedScript('')
+            setMode('create')
+            setLoading(false)
+          }
+        }
+      ]
+    )
   }
 
   const pickImage = async () => {
@@ -340,7 +365,13 @@ export function VideoCreator() {
 
       {generatedScript && !loading && (
         <View style={styles.scriptContainer}>
-          <Text style={styles.scriptTitle}>🎬 生成的脚本</Text>
+          <View style={styles.scriptHeader}>
+            <Text style={styles.scriptTitle}>🎬 生成的脚本</Text>
+            <TouchableOpacity style={styles.newChatButton} onPress={handleNewConversation}>
+              <Ionicons name="add-circle-outline" size={18} color={theme.primaryColor} />
+              <Text style={styles.newChatButtonText}>新开对话</Text>
+            </TouchableOpacity>
+          </View>
           <ScrollView style={styles.scriptScroll}>
             <Text style={styles.scriptText}>{generatedScript}</Text>
           </ScrollView>
@@ -408,6 +439,20 @@ const getStyles = (theme: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.backgroundColor,
+  },
+  newChatButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: theme.primaryColor + '15',
+  },
+  newChatButtonText: {
+    fontSize: 13,
+    color: theme.primaryColor,
+    fontWeight: '500',
   },
   header: {
     padding: 20,
@@ -566,6 +611,12 @@ const getStyles = (theme: any) => StyleSheet.create({
     padding: 16,
     backgroundColor: theme.cardBackground,
     borderRadius: 12,
+  },
+  scriptHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   scriptTitle: {
     fontSize: 20,
