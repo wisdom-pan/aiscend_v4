@@ -15,7 +15,7 @@ import {
 } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
 import { useState, useRef, useContext, useEffect } from 'react'
-import { ThemeContext, AppContext } from '../context'
+import { ThemeContext } from '../context'
 import * as ImagePicker from 'expo-image-picker'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import Markdown from '@ronradtke/react-native-markdown-display'
@@ -98,7 +98,6 @@ export function FacialDesign() {
   const [backgroundTaskId, setBackgroundTaskId] = useState<string | null>(null)
   const scrollViewRef = useRef<ScrollView | null>(null)
   const { theme } = useContext(ThemeContext)
-  const { chatType } = useContext(AppContext)
   const styles = getStyles(theme)
 
   // 新开对话
@@ -712,11 +711,11 @@ export function FacialDesign() {
       const eventSourceArgs = {
         body: {
           messages: conversationHistory,
-          model: chatType.label,
+          model: 'gemini-3-flash-preview',
           stream: true
         },
-        type: getChatType(chatType),
-        apiKey: chatType.label.includes('gemini') ? API_KEYS.GEMINI : API_KEYS.OPENAI
+        type: 'openai',
+        apiKey: API_KEYS.GEMINI
       }
 
       const assistantMessage: Message = {
