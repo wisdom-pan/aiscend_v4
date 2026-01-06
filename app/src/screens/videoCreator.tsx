@@ -11,6 +11,7 @@ import {
 import { useState, useContext } from 'react'
 import { ThemeContext } from '../context'
 import * as ImagePicker from 'expo-image-picker'
+import * as Clipboard from 'expo-clipboard'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { MODELS } from '../../constants'
 import { fetchStream } from '../utils'
@@ -152,7 +153,6 @@ export function VideoCreator() {
 
       await fetchStream({
         body: eventSourceArgs.body,
-        type: eventSourceArgs.type,
         apiKey: eventSourceArgs.apiKey,
         onOpen: () => {
           console.log("Open streaming connection.")
@@ -204,7 +204,13 @@ export function VideoCreator() {
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>自媒体内容创作</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>自媒体内容创作</Text>
+          <TouchableOpacity style={styles.newChatButton} onPress={handleNewConversation}>
+            <Ionicons name="add-circle-outline" size={18} color={theme.buttonText} />
+            <Text style={styles.newChatButtonText}>新开对话</Text>
+          </TouchableOpacity>
+        </View>
         <Text style={styles.subtitle}>AI驱动的视频脚本创作引擎</Text>
       </View>
 
@@ -341,7 +347,7 @@ export function VideoCreator() {
         </View>
       </View>
 
-      {loading ? (
+      {loading && (
         <View style={styles.loadingContainer}>
           <TouchableOpacity
             style={styles.stopButton}
@@ -351,27 +357,11 @@ export function VideoCreator() {
             <Text style={styles.stopButtonText}>停止生成</Text>
           </TouchableOpacity>
         </View>
-      ) : (
-        <TouchableOpacity
-          style={styles.generateButton}
-          onPress={generateScript}
-        >
-          <Ionicons name="videocam-outline" size={24} color={theme.buttonText} />
-          <Text style={styles.generateButtonText}>
-            {mode === 'create' ? '生成原创脚本' : '生成优化版本'}
-          </Text>
-        </TouchableOpacity>
       )}
 
-      {generatedScript && !loading && (
+      {generatedScript ? (
         <View style={styles.scriptContainer}>
-          <View style={styles.scriptHeader}>
-            <Text style={styles.scriptTitle}>🎬 生成的脚本</Text>
-            <TouchableOpacity style={styles.newChatButton} onPress={handleNewConversation}>
-              <Ionicons name="add-circle-outline" size={18} color={theme.primaryColor} />
-              <Text style={styles.newChatButtonText}>新开对话</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.scriptTitle}>🎬 生成的脚本</Text>
           <ScrollView style={styles.scriptScroll}>
             <Text style={styles.scriptText}>{generatedScript}</Text>
           </ScrollView>
@@ -382,7 +372,7 @@ export function VideoCreator() {
                 try {
                   await Clipboard.setStringAsync(generatedScript)
                   Alert.alert('提示', '脚本已复制到剪贴板')
-                } catch (error) {
+                } catch (error: any) {
                   Alert.alert('提示', '复制失败：' + error.message)
                 }
               }}
@@ -401,35 +391,28 @@ export function VideoCreator() {
                     result: generatedScript,
                   })
                   Alert.alert('提示', '已保存到历史记录')
-                } catch (error) {
+                } catch (error: any) {
                   Alert.alert('提示', '保存失败：' + error.message)
                 }
               }}
             >
               <Ionicons name="bookmark-outline" size={20} color={theme.buttonText} />
-              <Text style={styles.actionButtonText}>收藏脚本</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => {
-                // 重试功能
-                if (mode === 'create') {
-                  setTopic('')
-                  setStyle('')
-                  setGeneratedScript('')
-                } else {
-                  setOriginalScript('')
-                  setOptimizationNeeds('')
-                  setGeneratedScript('')
-                }
-                Alert.alert('提示', '已清空，请重新输入')
-              }}
-            >
-              <Ionicons name="refresh-outline" size={20} color={theme.buttonText} />
-              <Text style={styles.actionButtonText}>重试</Text>
+              <Text style={styles.actionButtonText}>保存记录</Text>
             </TouchableOpacity>
           </View>
         </View>
+      ) : (
+        !loading && (
+          <TouchableOpacity
+            style={styles.generateButton}
+            onPress={generateScript}
+          >
+            <Ionicons name="videocam-outline" size={24} color={theme.buttonText} />
+            <Text style={styles.generateButtonText}>
+              {mode === 'create' ? '生成原创脚本' : '生成优化版本'}
+            </Text>
+          </TouchableOpacity>
+        )
       )}
     </ScrollView>
   )
@@ -440,23 +423,14 @@ const getStyles = (theme: any) => StyleSheet.create({
     flex: 1,
     backgroundColor: theme.backgroundColor,
   },
-  newChatButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: theme.primaryColor + '15',
-  },
-  newChatButtonText: {
-    fontSize: 13,
-    color: theme.primaryColor,
-    fontWeight: '500',
-  },
   header: {
     padding: 20,
     backgroundColor: theme.primaryColor,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   title: {
     fontSize: 24,
@@ -468,6 +442,20 @@ const getStyles = (theme: any) => StyleSheet.create({
     fontSize: 14,
     color: theme.buttonText,
     opacity: 0.9,
+  },
+  newChatButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  newChatButtonText: {
+    fontSize: 13,
+    color: theme.buttonText,
+    fontWeight: '500',
   },
   section: {
     padding: 20,
