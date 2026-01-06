@@ -515,6 +515,18 @@ export function ContentGenerator() {
 
   return (
     <KeyboardAvoidingView behavior="padding" style={styles.container} keyboardVerticalOffset={110}>
+      {/* 头部 - 新开对话按钮 */}
+      <View style={styles.header}>
+        <View style={styles.headerRow}>
+          <Text style={styles.headerTitle}>文案生成</Text>
+          <TouchableOpacity style={styles.newChatButton} onPress={handleNewConversation}>
+            <Ionicons name="add-circle-outline" size={18} color={theme.buttonText} />
+            <Text style={styles.newChatButtonText}>新开对话</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.headerSubtitle}>AI驱动的医美朋友圈文案创作</Text>
+      </View>
+
       {/* 可折叠的设置面板 */}
       {showSettings && (
         <ScrollView style={styles.settingsPanel} showsVerticalScrollIndicator={false}>
@@ -705,6 +717,26 @@ const getStyles = (theme: any) => StyleSheet.create({
     flex: 1,
     backgroundColor: theme.backgroundColor,
   },
+  header: {
+    padding: 20,
+    backgroundColor: theme.primaryColor,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: theme.buttonText,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: theme.buttonText,
+    opacity: 0.9,
+    marginTop: 4,
+  },
   chatHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -725,11 +757,11 @@ const getStyles = (theme: any) => StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
-    backgroundColor: theme.primaryColor + '15',
+    backgroundColor: 'rgba(255,255,255,0.2)',
   },
   newChatButtonText: {
     fontSize: 13,
-    color: theme.primaryColor,
+    color: theme.buttonText,
     fontWeight: '500',
   },
   settingsPanel: {

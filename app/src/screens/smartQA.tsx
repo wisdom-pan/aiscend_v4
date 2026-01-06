@@ -448,7 +448,13 @@ export function SmartQA() {
   return (
     <ScrollView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>智能问答</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>智能问答</Text>
+          <TouchableOpacity style={styles.newChatButton} onPress={handleNewConversation}>
+            <Ionicons name="add-circle-outline" size={18} color={theme.buttonText} />
+            <Text style={styles.newChatButtonText}>新开对话</Text>
+          </TouchableOpacity>
+        </View>
         <Text style={styles.subtitle}>高情商沟通助手，让成交更简单</Text>
       </View>
 
@@ -484,18 +490,7 @@ export function SmartQA() {
       </View>
 
       <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>🎯 沟通场景</Text>
-          {replyOptions.length > 0 && (
-            <TouchableOpacity
-              style={styles.newChatButton}
-              onPress={handleNewConversation}
-            >
-              <Ionicons name="add-circle-outline" size={18} color={theme.primaryColor} />
-              <Text style={styles.newChatButtonText}>新开对话</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+        <Text style={styles.sectionTitle}>🎯 沟通场景</Text>
         <View style={styles.scenarioGrid}>
           {SCENARIOS.map((s) => (
             <TouchableOpacity
@@ -730,11 +725,16 @@ const getStyles = (theme: any) => StyleSheet.create({
     padding: 20,
     backgroundColor: theme.primaryColor,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: theme.buttonText,
-    marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
@@ -745,12 +745,6 @@ const getStyles = (theme: any) => StyleSheet.create({
     padding: 20,
     borderBottomWidth: 1,
     borderBottomColor: theme.borderColor,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
   },
   sectionTitle: {
     fontSize: 18,
@@ -1177,11 +1171,11 @@ const getStyles = (theme: any) => StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
-    backgroundColor: theme.primaryColor + '15',
+    backgroundColor: 'rgba(255,255,255,0.2)',
   },
   newChatButtonText: {
     fontSize: 13,
-    color: theme.primaryColor,
+    color: theme.buttonText,
     fontWeight: '500',
   },
 })

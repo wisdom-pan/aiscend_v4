@@ -31,6 +31,7 @@ const medicalTheme = {
   secondaryTextColor: colors.white,
   mutedForegroundColor: '#95A5A6',
   backgroundColor: '#F8F9FA',
+  sidebarBackground: '#FFFFFF',
   placeholderTextColor: '#BDC3C7',
   secondaryBackgroundColor: colors.black,
   borderColor: 'rgba(74, 144, 226, .2)',
@@ -51,6 +52,7 @@ const lightTheme = {
   secondaryTextColor: colors.white,
   mutedForegroundColor: colors.gray,
   backgroundColor: colors.white,
+  sidebarBackground: colors.white,
   placeholderTextColor: colors.gray,
   secondaryBackgroundColor: colors.black,
   borderColor: 'rgba(0, 0, 0, .15)',
@@ -71,6 +73,7 @@ const darkTheme = {
   secondaryTextColor: colors.black,
   mutedForegroundColor: colors.lightWhite,
   backgroundColor: colors.black,
+  sidebarBackground: '#1E1E1E',
   placeholderTextColor: colors.lightWhite,
   laceholderTextColor: colors.lightWhite,
   secondaryBackgroundColor: colors.white,
@@ -89,6 +92,7 @@ const hackerNews = {
   name: 'Hacker News',
   label: 'hackerNews',
   backgroundColor: '#e4e4e4',
+  sidebarBackground: '#e4e4e4',
   tintColor: '#ed702d',
 }
 
@@ -97,6 +101,7 @@ const miami = {
   name: 'Miami',
   label: 'miami',
   backgroundColor: '#231F20',
+  sidebarBackground: '#231F20',
   tintColor: colors.lightPink,
   tintTextColor: '#231F20',
   tabBarActiveTintColor: colors.lightPink
@@ -107,6 +112,7 @@ const vercel = {
   name: 'Vercel',
   label: 'vercel',
   backgroundColor: colors.black,
+  sidebarBackground: colors.black,
   tintColor: '#171717',
   tintTextColor: colors.white,
   tabBarActiveTintColor: colors.white,
