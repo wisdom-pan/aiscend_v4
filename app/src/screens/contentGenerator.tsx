@@ -301,6 +301,7 @@ export function ContentGenerator() {
               title: `文案生成 - ${keywords}`,
               prompt: `关键词：${keywords}\n人设：${selectedPersonaObj?.label}\n风格：${selectedStyleObj?.label}`,
               result: localResponse,
+              image_path: images.length > 0 ? images[0] : undefined,
             })
           } catch (historyError) {
             console.error('Failed to save history:', historyError)

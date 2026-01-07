@@ -8,6 +8,7 @@ import {
   TextInput,
   Modal,
   Alert,
+  Image,
 } from 'react-native'
 import { useState, useEffect, useContext } from 'react'
 import { useNavigation } from '@react-navigation/native'
@@ -28,6 +29,8 @@ export function History() {
   const [selectedRecord, setSelectedRecord] = useState<HistoryRecord | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [editPrompt, setEditPrompt] = useState('')
+  const [followUpText, setFollowUpText] = useState('')
+  const [isFollowingUp, setIsFollowingUp] = useState(false)
   const { theme } = useContext(ThemeContext)
   const styles = getStyles(theme)
 
@@ -227,6 +230,37 @@ export function History() {
     }
   }
 
+  // 追问功能
+  const handleFollowUp = async () => {
+    if (!selectedRecord || !followUpText.trim()) return
+
+    setIsFollowingUp(true)
+    try {
+      // 根据类型跳转到对应页面，并传递追问内容
+      switch (selectedRecord.type) {
+        case 'facial':
+          navigation.navigate('FacialAnalysis' as never, { followUp: followUpText, record: selectedRecord } as never)
+          break
+        case 'content':
+          navigation.navigate('ContentGenerator' as never, { followUp: followUpText, record: selectedRecord } as never)
+          break
+        case 'video':
+          navigation.navigate('VideoCreator' as never, { followUp: followUpText, record: selectedRecord } as never)
+          break
+        case 'qa':
+          navigation.navigate('SmartQA' as never, { followUp: followUpText, record: selectedRecord } as never)
+          break
+      }
+      setEditModalVisible(false)
+      setFollowUpText('')
+    } catch (error) {
+      console.error('追问失败:', error)
+      Alert.alert('提示', '追问失败，请重试')
+    } finally {
+      setIsFollowingUp(false)
+    }
+  }
+
   const renderRecordItem = ({ item }: { item: HistoryRecord }) => (
     <TouchableOpacity style={styles.recordCard} onPress={() => handleRecordPress(item)}>
       <View style={styles.recordHeader}>
@@ -249,6 +283,12 @@ export function History() {
         </View>
         <Ionicons name="chevron-forward" size={20} color={theme.placeholderColor} />
       </View>
+
+      {/* 图片显示 */}
+      {item.image_path && (
+        <Image source={{ uri: item.image_path }} style={styles.recordImage} />
+      )}
+
       <Text style={styles.recordTitle} numberOfLines={1}>
         {item.title}
       </Text>
@@ -402,6 +442,32 @@ export function History() {
                 <Ionicons name="trash-outline" size={20} color="#fff" />
                 <Text style={[styles.actionButtonText, { color: '#fff' }]}>删除</Text>
               </TouchableOpacity>
+            </View>
+
+            {/* 追问功能 */}
+            <View style={styles.followUpContainer}>
+              <Text style={styles.inputLabel}>💬 继续追问</Text>
+              <View style={styles.followUpInputRow}>
+                <TextInput
+                  style={styles.followUpInput}
+                  placeholder="输入追问内容..."
+                  placeholderTextColor={theme.placeholderColor}
+                  value={followUpText}
+                  onChangeText={setFollowUpText}
+                  multiline
+                />
+                <TouchableOpacity
+                  style={[styles.sendFollowUpBtn, !followUpText.trim() && styles.sendFollowUpBtnDisabled]}
+                  onPress={handleFollowUp}
+                  disabled={!followUpText.trim() || isFollowingUp}
+                >
+                  {isFollowingUp ? (
+                    <Ionicons name="hourglass" size={20} color="#fff" />
+                  ) : (
+                    <Ionicons name="send" size={20} color="#fff" />
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           </ScrollView>
         </View>
@@ -618,6 +684,12 @@ const getStyles = (theme: any) => StyleSheet.create({
     borderRadius: 6,
     marginTop: 4,
   },
+  recordImage: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
   multilineInput: {
     height: 100,
     textAlignVertical: 'top',
@@ -714,6 +786,42 @@ const getStyles = (theme: any) => StyleSheet.create({
   modalBackText: {
     fontSize: 16,
     color: theme.primaryColor,
+  },
+  followUpContainer: {
+    marginTop: 20,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: theme.borderColor,
+  },
+  followUpInputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    marginTop: 8,
+  },
+  followUpInput: {
+    flex: 1,
+    minHeight: 44,
+    maxHeight: 80,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 22,
+    backgroundColor: theme.cardBackground,
+    color: theme.textColor,
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: theme.borderColor,
+  },
+  sendFollowUpBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: theme.primaryColor,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sendFollowUpBtnDisabled: {
+    opacity: 0.5,
   },
 })
 
