@@ -191,21 +191,26 @@ export function ContentGenerator() {
           content: m.content
         }))
 
-      const systemPrompt = `你是一位专业的医美朋友圈文案创作专家，擅长创作吸引人的朋友圈内容。
+      const isLifeStyle = selectedStyle === 'life_quality' || selectedStyle === 'personal_thoughts'
+      const styleHint = isLifeStyle
+        ? '\n\n【特别提示】这是生活类内容，请创作纯生活方式/个人感悟类文案，不要提及任何医美、整形、整形手术、注射、项目等专业医美内容。内容应该轻松、自然、贴近生活。'
+        : '\n\n【特别提示】这是医美行业内容，可以适当融入医美相关元素。'
+
+      const systemPrompt = `你是一位专业的文案创作专家，根据用户选择的人设风格创作内容。
 
 【重要】直接输出最终结果，不要输出思考过程。
 
 ## 输出格式要求：
-1. 生成3条不同风格的朋友圈文案
+1. 生成3条不同风格的文案
 2. 每条文案要有明显的分隔（使用 "---" 三连横线分隔）
-3. 文案要自然流畅，符合朋友圈调性
+3. 文案要自然流畅，符合内容调性
 4. 适当使用emoji，但不要过度
 5. 每条文案角度不同，避免重复
 
 ## 用户需求：
 人设风格：${selectedPersonaObj?.label} - ${selectedPersonaObj?.description}
 内容风格：${selectedStyleObj?.label} - ${selectedStyleObj?.description}
-目标字数：${wordCount}
+目标字数：${wordCount}${styleHint}
 
 如果用户要求修改或调整，请基于之前生成的内容进行优化。`
 

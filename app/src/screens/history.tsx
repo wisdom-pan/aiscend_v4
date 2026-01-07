@@ -10,6 +10,7 @@ import {
   Alert,
 } from 'react-native'
 import { useState, useEffect, useContext } from 'react'
+import { useNavigation } from '@react-navigation/native'
 import { ThemeContext } from '../context'
 import { historyService } from '../services/historyService'
 import { HistoryRecord, UsageStats } from '../types/history'
@@ -18,6 +19,7 @@ import Markdown from '@ronradtke/react-native-markdown-display'
 import * as Clipboard from 'expo-clipboard'
 
 export function History() {
+  const navigation = useNavigation()
   const [stats, setStats] = useState<UsageStats | null>(null)
   const [history, setHistory] = useState<HistoryRecord[]>([])
   const [weeklyData, setWeeklyData] = useState<{ labels: string[], data: number[] }>({ labels: [], data: [] })
@@ -28,6 +30,27 @@ export function History() {
   const [editPrompt, setEditPrompt] = useState('')
   const { theme } = useContext(ThemeContext)
   const styles = getStyles(theme)
+
+  // 继续对话，跳转到对应页面
+  const handleContinueConversation = () => {
+    if (!selectedRecord) return
+    setEditModalVisible(false)
+    // 根据类型跳转到对应页面
+    switch (selectedRecord.type) {
+      case 'facial':
+        navigation.navigate('FacialAnalysis' as never)
+        break
+      case 'content':
+        navigation.navigate('ContentGenerator' as never)
+        break
+      case 'video':
+        navigation.navigate('VideoCreator' as never)
+        break
+      case 'qa':
+        navigation.navigate('SmartQA' as never)
+        break
+    }
+  }
 
   useEffect(() => {
     loadData()
@@ -364,10 +387,17 @@ export function History() {
             )}
 
             <View style={styles.actionButtons}>
+              <TouchableOpacity style={styles.actionButton} onPress={handleContinueConversation}>
+                <Ionicons name="chatbubble-ellipses-outline" size={20} color={theme.primaryColor} />
+                <Text style={styles.actionButtonText}>继续对话</Text>
+              </TouchableOpacity>
               <TouchableOpacity style={styles.actionButton} onPress={copyPromptToClipboard}>
                 <Ionicons name="document-text-outline" size={20} color={theme.primaryColor} />
                 <Text style={styles.actionButtonText}>复制输入</Text>
               </TouchableOpacity>
+            </View>
+
+            <View style={styles.actionButtons}>
               <TouchableOpacity style={[styles.actionButton, styles.actionButtonDelete]} onPress={handleDeleteRecord}>
                 <Ionicons name="trash-outline" size={20} color="#fff" />
                 <Text style={[styles.actionButtonText, { color: '#fff' }]}>删除</Text>
@@ -593,7 +623,6 @@ const getStyles = (theme: any) => StyleSheet.create({
     textAlignVertical: 'top',
   },
   resultContainer: {
-    maxHeight: 300,
     backgroundColor: theme.cardBackground,
     borderRadius: 8,
     padding: 12,

@@ -92,7 +92,7 @@ export function FacialDesign() {
     }
   ])
   const [input, setInput] = useState('')
-  const [pendingImages, setPendingImages] = useState<string[]>([])
+  const [selectedImages, setSelectedImages] = useState<string[]>([])
   const [openaiApiKey, setOpenaiApiKey] = useState<string>('')
   const [geminiApiKey, setGeminiApiKey] = useState<string>('')
   const [backgroundTaskId, setBackgroundTaskId] = useState<string | null>(null)
@@ -118,7 +118,7 @@ export function FacialDesign() {
               isComplete: true
             }])
             setInput('')
-            setPendingImages([])
+            setSelectedImages([])
             setLoading(false)
             clearBackgroundTask()
           }
@@ -380,21 +380,8 @@ export function FacialDesign() {
     })
 
     if (!result.canceled) {
-      const selectedImages = result.assets.map(asset => asset.uri)
-      setPendingImages(selectedImages)
-
-      const userMessage: Message = {
-        id: generateId(),
-        type: 'user',
-        content: input || '请分析我的照片',
-        images: selectedImages,
-        createdAt: new Date().toISOString(),
-        isComplete: true
-      }
-
-      setMessages(prev => [...prev, userMessage])
-      setInput('')
-      analyzeImages(selectedImages, userMessage.content)
+      const newImages = result.assets.map(asset => asset.uri)
+      setSelectedImages(prev => [...prev, ...newImages].slice(0, 3))
     }
   }
 
@@ -409,21 +396,14 @@ export function FacialDesign() {
 
       if (!result.canceled) {
         const capturedImages = result.assets.map(asset => asset.uri)
-        setPendingImages(capturedImages)
-
-        const userMessage: Message = {
-          id: generateId(),
-          type: 'user',
-          content: input || '请分析我的照片',
-          images: capturedImages,
-          createdAt: new Date().toISOString()
-        }
-
-        setMessages(prev => [...prev, userMessage])
-        setInput('')
-        analyzeImages(capturedImages, userMessage.content)
+        setSelectedImages(prev => [...prev, ...capturedImages].slice(0, 3))
       }
     }
+  }
+
+  // 清除选中的图片
+  const clearSelectedImages = () => {
+    setSelectedImages([])
   }
 
   const analyzeImages = async (images: string[], requirement: string) => {
@@ -678,6 +658,25 @@ export function FacialDesign() {
   }
 
   const handleSend = async () => {
+    // 如果有图片，先分析图片
+    if (selectedImages.length > 0) {
+      const userMessage: Message = {
+        id: generateId(),
+        type: 'user',
+        content: input || '请分析我的照片',
+        images: selectedImages,
+        createdAt: new Date().toISOString(),
+        isComplete: true
+      }
+
+      setMessages(prev => [...prev, userMessage])
+      setInput('')
+      setSelectedImages([])
+      await analyzeImages(selectedImages, userMessage.content)
+      return
+    }
+
+    // 没有图片时，发送文字消息
     if (!input.trim()) return
 
     const userMessage: Message = {
@@ -979,6 +978,33 @@ export function FacialDesign() {
         </View>
       )}
 
+      {/* 已选择的图片预览 */}
+      {selectedImages.length > 0 && (
+        <View style={styles.selectedImagesContainer}>
+          <View style={styles.selectedImagesHeader}>
+            <Text style={styles.selectedImagesTitle}>已选择 {selectedImages.length} 张图片</Text>
+            <TouchableOpacity onPress={clearSelectedImages}>
+              <Text style={styles.clearImagesText}>清除</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.selectedImagesList}>
+              {selectedImages.map((uri, index) => (
+                <TouchableOpacity key={index} onPress={() => {
+                  // 点击移除这张图片
+                  setSelectedImages(prev => prev.filter((_, i) => i !== index))
+                }}>
+                  <Image source={{ uri }} style={styles.selectedImage} />
+                  <View style={styles.removeImageBtn}>
+                    <Ionicons name="close" size={14} color="#fff" />
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+      )}
+
       <View style={styles.inputContainer}>
         <TouchableOpacity style={styles.imageButton} onPress={takePhoto}>
           <Ionicons name="camera" size={24} color={theme.primaryColor} />
@@ -1142,6 +1168,47 @@ const getStyles = (theme: any) => StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  selectedImagesContainer: {
+    padding: 12,
+    backgroundColor: theme.cardBackground,
+    borderTopWidth: 1,
+    borderTopColor: theme.borderColor,
+  },
+  selectedImagesHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  selectedImagesTitle: {
+    fontSize: 13,
+    color: theme.textColor,
+    fontWeight: '500',
+  },
+  clearImagesText: {
+    fontSize: 13,
+    color: theme.primaryColor,
+  },
+  selectedImagesList: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  selectedImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+  },
+  removeImageBtn: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#FF4757',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   inputContainer: {
     flexDirection: 'row',
