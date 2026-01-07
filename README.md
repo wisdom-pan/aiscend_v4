@@ -242,4 +242,4 @@ adb -s 192.168.1.2:43157 logcat -d | grep -E "(ReactNativeJS|JS|error)"
 
 adb -s 10.17.11.35:37801 logcat -d | grep -E "(SmartQA|generateReplies|Streaming error|生成失败|Error)"
 
-adb -s 10.17.11.35:37801 logcat -d | grep -E "ReactNativeJS.*(Request)"
+adb -s 10.17.11.49:41081 logcat -d | grep -E "ReactNativeJS|Error"
