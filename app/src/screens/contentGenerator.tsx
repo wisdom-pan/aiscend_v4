@@ -390,7 +390,7 @@ export function ContentGenerator() {
                         <Text style={styles.copyBtnText}>复制</Text>
                       </TouchableOpacity>
                     </View>
-                    <Markdown style={{
+                    <Markdown selectable={true} style={{
                       body: { color: theme.textColor, fontSize: 14, lineHeight: 22 },
                       paragraph: { color: theme.textColor, fontSize: 14, lineHeight: 22 },
                       strong: { color: theme.primaryColor, fontWeight: 'bold' },
@@ -428,7 +428,7 @@ export function ContentGenerator() {
                   </View>
                 ))
               ) : (
-                <Markdown style={{
+                <Markdown selectable={true} style={{
                   body: { color: theme.textColor, fontSize: 14, lineHeight: 22 },
                   paragraph: { color: theme.textColor, fontSize: 14, lineHeight: 22 },
                   strong: { color: theme.primaryColor, fontWeight: 'bold' },

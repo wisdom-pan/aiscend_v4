@@ -296,7 +296,7 @@ export function History() {
         {item.prompt}
       </Text>
       {item.result && (
-        <Text style={styles.recordResult} numberOfLines={3}>
+        <Text style={styles.recordResult} numberOfLines={3} selectable={true}>
           {item.result}
         </Text>
       )}
@@ -419,7 +419,7 @@ export function History() {
                   </TouchableOpacity>
                 </View>
                 <ScrollView style={styles.resultContainer} nestedScrollEnabled>
-                  <Markdown style={markdownStyles(theme)}>
+                  <Markdown selectable={true} style={markdownStyles(theme)}>
                     {selectedRecord.result}
                   </Markdown>
                 </ScrollView>

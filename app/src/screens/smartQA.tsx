@@ -611,15 +611,15 @@ export function SmartQA() {
                         <Text style={styles.copyBtnText}>复制</Text>
                       </TouchableOpacity>
                     </View>
-                    <Markdown style={markdownStyles(theme)}>{content}</Markdown>
-                    {/* 选择复制按钮 */}
-                    <TouchableOpacity
-                      style={styles.selectButton}
-                      onPress={() => showTextSelectionMenu(content)}
-                    >
-                      <Ionicons name="text-outline" size={14} color={theme.primaryColor} />
-                      <Text style={styles.selectButtonText}>选择复制</Text>
-                    </TouchableOpacity>
+                    {/* 使用 TextInput 支持手动选择文字 */}
+                    <TextInput
+                      style={styles.selectableContent}
+                      value={content}
+                      multiline
+                      editable={false}
+                      selectTextOnFocus={true}
+                      textAlignVertical="top"
+                    />
                   </View>
                 ))}
               </View>
@@ -937,6 +937,16 @@ const getStyles = (theme: any) => StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: theme.borderColor,
+  },
+  selectableContent: {
+    flex: 1,
+    minHeight: 60,
+    padding: 10,
+    backgroundColor: theme.backgroundColor,
+    borderRadius: 8,
+    color: theme.textColor,
+    fontSize: 14,
+    lineHeight: 22,
   },
   contentHeader: {
     flexDirection: 'row',

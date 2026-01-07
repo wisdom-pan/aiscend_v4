@@ -393,7 +393,7 @@ export function VideoCreator() {
       {generatedScript ? (
         <View style={styles.scriptContainer}>
           <Text style={styles.scriptTitle}>🎬 生成的脚本</Text>
-          <Text style={styles.scriptText}>{generatedScript}</Text>
+          <Text style={styles.scriptText} selectable={true}>{generatedScript}</Text>
           <View style={styles.scriptActions}>
             <TouchableOpacity
               style={styles.actionButton}
