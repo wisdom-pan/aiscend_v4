@@ -31,16 +31,15 @@ const PLATFORMS: Platform[] = [
 ]
 
 export function VideoCreator() {
-  const [mode, setMode] = useState<'create' | 'rewrite'>('create')
   const [loading, setLoading] = useState(false)
   const [abortController, setAbortController] = useState<AbortController | null>(null)
-  const [image, setImage] = useState<string | null>(null)
+  const [media, setMedia] = useState<string | null>(null)
+  const [isVideo, setIsVideo] = useState(false)
   const [topic, setTopic] = useState('')
   const [platform, setPlatform] = useState<string>('douyin')
   const [style, setStyle] = useState('')
-  const [originalScript, setOriginalScript] = useState('')
-  const [optimizationNeeds, setOptimizationNeeds] = useState('')
   const [generatedScript, setGeneratedScript] = useState('')
+  const [conversation, setConversation] = useState<Array<{role: string, content: string}>>([])
 
   const { theme } = useContext(ThemeContext)
   const styles = getStyles(theme)
@@ -64,13 +63,12 @@ export function VideoCreator() {
         {
           text: '确定',
           onPress: () => {
-            setImage(null)
+            setMedia(null)
+            setIsVideo(false)
             setTopic('')
             setStyle('')
-            setOriginalScript('')
-            setOptimizationNeeds('')
             setGeneratedScript('')
-            setMode('create')
+            setConversation([])
             setLoading(false)
           }
         }
@@ -78,25 +76,23 @@ export function VideoCreator() {
     )
   }
 
-  const pickImage = async () => {
+  const pickMedia = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
       allowsEditing: false,
       quality: 0.8,
     })
 
     if (!result.canceled) {
-      setImage(result.assets[0].uri)
+      const asset = result.assets[0]
+      setMedia(asset.uri)
+      setIsVideo(asset.type === 'video')
     }
   }
 
   const generateScript = async () => {
-    if (mode === 'create' && !topic.trim()) {
-      alert('请输入主题关键词')
-      return
-    }
-    if (mode === 'rewrite' && !originalScript.trim()) {
-      alert('请输入原视频脚本')
+    if (!topic.trim() && !media) {
+      Alert.alert('提示', '请输入主题关键词或上传图片/视频')
       return
     }
 
@@ -105,12 +101,23 @@ export function VideoCreator() {
       const selectedPlatform = PLATFORMS.find(p => p.key === platform)
       const platformDesc = selectedPlatform?.description || ''
 
-      let systemPrompt = `你是一位专业的医美自媒体视频脚本创作专家，擅长为${selectedPlatform?.label}平台创作吸引人的视频脚本。
+      let userContent = ''
+      if (topic.trim()) {
+        userContent += `主题关键词：${topic}\n`
+      }
+      if (media) {
+        userContent += `已上传${isVideo ? '视频' : '图片'}素材`
+      }
+      if (style.trim()) {
+        userContent += `\n风格要求：${style}`
+      }
+
+      const systemPrompt = `你是一位专业的医美自媒体视频脚本创作专家，擅长为${selectedPlatform?.label}平台创作吸引人的视频脚本。
 
 平台特点：${platformDesc}
 平台名称：${selectedPlatform?.label}
 
-请基于提供的主题或原脚本，创作一个完整的视频脚本，包括：
+请基于用户提供的素材（主题/图片/视频），创作一个完整的视频脚本，包括：
 1. 开头（吸引眼球，3-5秒）
 2. 中间主体内容（专业知识点+案例分享）
 3. 结尾互动引导
@@ -124,24 +131,16 @@ export function VideoCreator() {
 - 适合医美行业特点
 - 时长控制在60-90秒`
 
-      if (mode === 'rewrite') {
-        systemPrompt += `\n\n原脚本内容：\n${originalScript}\n\n优化需求：${optimizationNeeds || '提升吸引力和专业度'}`
-      } else {
-        systemPrompt += `\n\n主题关键词：${topic}`
-      }
+      // 构建消息历史
+      const newMessages = [
+        { role: 'system', content: systemPrompt },
+        ...conversation,
+        { role: 'user', content: userContent }
+      ]
 
       const eventSourceArgs = {
         body: {
-          messages: [
-            {
-              role: 'system',
-              content: systemPrompt
-            },
-            {
-              role: 'user',
-              content: mode === 'create' ? `请为"${topic}"创作视频脚本` : `请优化这个脚本：${originalScript}`
-            }
-          ],
+          messages: newMessages,
           model: MODELS.gpt.label,
           stream: true
         },
@@ -159,12 +158,9 @@ export function VideoCreator() {
         },
         onMessage: (data) => {
           try {
-            console.log('📨 收到数据:', JSON.stringify(data, null, 2))
             if (data.choices && data.choices[0]?.delta?.content) {
               const newContent = data.choices[0].delta.content
-              console.log('✏️ 新内容:', newContent)
               localResponse += newContent
-              console.log('📝 累计内容长度:', localResponse.length)
               setGeneratedScript(localResponse)
             }
           } catch (error) {
@@ -174,18 +170,25 @@ export function VideoCreator() {
         onError: (error) => {
           console.error('Streaming error:', error)
           setLoading(false)
-          alert('生成失败，请重试')
+          Alert.alert('提示', '生成失败，请重试')
         },
         onClose: async () => {
           console.log('Stream closed')
           setLoading(false)
 
+          // 更新对话历史
+          setConversation(prev => [
+            ...prev,
+            { role: 'user', content: userContent },
+            { role: 'assistant', content: localResponse }
+          ])
+
           // 记录历史
           try {
             await historyService.saveRecord({
               type: 'video',
-              title: `${mode === 'create' ? '原创' : '优化'}脚本 - ${mode === 'create' ? topic : '脚本优化'}`,
-              prompt: `平台：${PLATFORMS.find(p => p.key === platform)?.label}\n风格：${style || '默认风格'}\n模式：${mode === 'create' ? '原创' : '优化'}`,
+              title: `脚本创作 - ${topic || (isVideo ? '视频素材' : '图片素材')}`,
+              prompt: `平台：${selectedPlatform?.label}\n风格：${style || '默认风格'}`,
               result: localResponse,
             })
           } catch (historyError) {
@@ -196,10 +199,77 @@ export function VideoCreator() {
 
     } catch (error) {
       console.error('生成失败:', error)
-      alert('生成失败，请重试')
+      Alert.alert('提示', '生成失败，请重试')
       setLoading(false)
     }
   }
+
+  // 追问功能
+  const handleFollowUp = async (question: string) => {
+    if (!question.trim()) return
+
+    setLoading(true)
+    try {
+      const selectedPlatform = PLATFORMS.find(p => p.key === platform)
+
+      const systemPrompt = `你是一位专业的医美自媒体视频脚本创作专家。`
+
+      const newMessages = [
+        { role: 'system', content: systemPrompt },
+        ...conversation,
+        { role: 'user', content: question }
+      ]
+
+      const eventSourceArgs = {
+        body: {
+          messages: newMessages,
+          model: MODELS.gpt.label,
+          stream: true
+        },
+        type: 'openai',
+        apiKey: API_KEYS.OPENAI
+      }
+
+      let localResponse = ''
+
+      await fetchStream({
+        body: eventSourceArgs.body,
+        apiKey: eventSourceArgs.apiKey,
+        onOpen: () => {},
+        onMessage: (data) => {
+          try {
+            if (data.choices && data.choices[0]?.delta?.content) {
+              const newContent = data.choices[0].delta.content
+              localResponse += newContent
+              setGeneratedScript(localResponse)
+            }
+          } catch (error) {
+            console.error('Failed to parse stream data:', error)
+          }
+        },
+        onError: (error) => {
+          console.error('Streaming error:', error)
+          setLoading(false)
+          Alert.alert('提示', '生成失败，请重试')
+        },
+        onClose: async () => {
+          setLoading(false)
+          setConversation(prev => [
+            ...prev,
+            { role: 'user', content: question },
+            { role: 'assistant', content: localResponse }
+          ])
+        }
+      })
+
+    } catch (error) {
+      console.error('追问失败:', error)
+      Alert.alert('提示', '追问失败，请重试')
+      setLoading(false)
+    }
+  }
+
+  const [followUpText, setFollowUpText] = useState('')
 
   return (
     <ScrollView style={styles.container}>
@@ -215,108 +285,59 @@ export function VideoCreator() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>⚙️ 创作模式</Text>
-        <View style={styles.modeSelector}>
+        <Text style={styles.sectionTitle}>📷 参考素材（可选）</Text>
+        <TouchableOpacity style={styles.uploadButton} onPress={pickMedia}>
+          {media ? (
+            isVideo ? (
+              <View style={styles.videoPreviewPlaceholder}>
+                <Ionicons name="videocam" size={48} color={theme.primaryColor} />
+                <Text style={styles.mediaTypeLabel}>视频素材</Text>
+                <Text style={styles.videoDurationLabel} numberOfLines={1}>已选择视频</Text>
+              </View>
+            ) : (
+              <Image source={{ uri: media }} style={styles.uploadedImage} />
+            )
+          ) : (
+            <>
+              <Ionicons name="image-outline" size={40} color={theme.primaryColor} />
+              <Text style={styles.uploadText}>上传图片或视频</Text>
+            </>
+          )}
+        </TouchableOpacity>
+        {media && (
           <TouchableOpacity
-            style={[
-              styles.modeButton,
-              mode === 'create' && styles.modeButtonActive
-            ]}
-            onPress={() => setMode('create')}
+            style={styles.clearMediaButton}
+            onPress={() => {
+              setMedia(null)
+              setIsVideo(false)
+            }}
           >
-            <Ionicons name="add-circle-outline" size={24} color={mode === 'create' ? theme.buttonText : theme.textColor} />
-            <Text style={[
-              styles.modeButtonText,
-              mode === 'create' && styles.modeButtonTextActive
-            ]}>
-              一创（原创脚本）
-            </Text>
+            <Text style={styles.clearMediaButtonText}>清除素材</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.modeButton,
-              mode === 'rewrite' && styles.modeButtonActive
-            ]}
-            onPress={() => setMode('rewrite')}
-          >
-            <Ionicons name="refresh-circle-outline" size={24} color={mode === 'rewrite' ? theme.buttonText : theme.textColor} />
-            <Text style={[
-              styles.modeButtonText,
-              mode === 'rewrite' && styles.modeButtonTextActive
-            ]}>
-              二创（脚本优化）
-            </Text>
-          </TouchableOpacity>
-        </View>
+        )}
       </View>
 
-      {mode === 'create' && (
-        <>
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>📷 参考素材（可选）</Text>
-            <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
-              {image ? (
-                <Image source={{ uri: image }} style={styles.uploadedImage} />
-              ) : (
-                <>
-                  <Ionicons name="image-outline" size={40} color={theme.primaryColor} />
-                  <Text style={styles.uploadText}>上传参考图片或视频</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>🎯 主题关键词</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="如：玻尿酸注射、鼻综合手术、皮肤管理等"
+          placeholderTextColor={theme.placeholderColor}
+          value={topic}
+          onChangeText={setTopic}
+        />
+      </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🎯 主题关键词</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="如：玻尿酸注射、鼻综合手术、皮肤管理等"
-              placeholderTextColor={theme.placeholderColor}
-              value={topic}
-              onChangeText={setTopic}
-            />
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>🎨 风格要求</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="如：明星案例、文字优美、专业科普"
-              placeholderTextColor={theme.placeholderColor}
-              value={style}
-              onChangeText={setStyle}
-            />
-          </View>
-        </>
-      )}
-
-      {mode === 'rewrite' && (
-        <>
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>📝 原视频脚本</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="粘贴原始视频脚本内容"
-              placeholderTextColor={theme.placeholderColor}
-              value={originalScript}
-              onChangeText={setOriginalScript}
-              multiline
-              numberOfLines={6}
-            />
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>✨ 优化需求</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="如：增加争议性、加强专业度、优化开头"
-              placeholderTextColor={theme.placeholderColor}
-              value={optimizationNeeds}
-              onChangeText={setOptimizationNeeds}
-            />
-          </View>
-        </>
-      )}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>🎨 风格要求</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="如：明星案例、文字优美、专业科普"
+          placeholderTextColor={theme.placeholderColor}
+          value={style}
+          onChangeText={setStyle}
+        />
+      </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>📱 目标平台</Text>
@@ -359,12 +380,20 @@ export function VideoCreator() {
         </View>
       )}
 
+      {!loading && (
+        <TouchableOpacity
+          style={styles.generateButton}
+          onPress={generateScript}
+        >
+          <Ionicons name="videocam-outline" size={24} color={theme.buttonText} />
+          <Text style={styles.generateButtonText}>生成视频脚本</Text>
+        </TouchableOpacity>
+      )}
+
       {generatedScript ? (
         <View style={styles.scriptContainer}>
           <Text style={styles.scriptTitle}>🎬 生成的脚本</Text>
-          <ScrollView style={styles.scriptScroll}>
-            <Text style={styles.scriptText}>{generatedScript}</Text>
-          </ScrollView>
+          <Text style={styles.scriptText} selectable={true}>{generatedScript}</Text>
           <View style={styles.scriptActions}>
             <TouchableOpacity
               style={styles.actionButton}
@@ -386,8 +415,8 @@ export function VideoCreator() {
                 try {
                   await historyService.saveRecord({
                     type: 'video',
-                    title: `${mode === 'create' ? '原创' : '优化'}脚本 - ${mode === 'create' ? topic : '脚本优化'}`,
-                    prompt: `平台：${PLATFORMS.find(p => p.key === platform)?.label}\n风格：${style || '默认风格'}\n模式：${mode === 'create' ? '原创' : '优化'}`,
+                    title: `脚本创作 - ${topic || (isVideo ? '视频素材' : '图片素材')}`,
+                    prompt: `平台：${PLATFORMS.find(p => p.key === platform)?.label}\n风格：${style || '默认风格'}`,
                     result: generatedScript,
                   })
                   Alert.alert('提示', '已保存到历史记录')
@@ -401,19 +430,35 @@ export function VideoCreator() {
             </TouchableOpacity>
           </View>
         </View>
-      ) : (
-        !loading && (
+      ) : null}
+
+      {/* 追问功能 */}
+      {generatedScript ? (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>💬 继续追问</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            placeholder="如：换个风格、重写开头、增加案例..."
+            placeholderTextColor={theme.placeholderColor}
+            value={followUpText}
+            onChangeText={setFollowUpText}
+            multiline
+            numberOfLines={3}
+          />
           <TouchableOpacity
-            style={styles.generateButton}
-            onPress={generateScript}
+            style={[styles.generateButton, { marginTop: 12 }]}
+            onPress={() => {
+              if (followUpText.trim()) {
+                handleFollowUp(followUpText)
+                setFollowUpText('')
+              }
+            }}
           >
-            <Ionicons name="videocam-outline" size={24} color={theme.buttonText} />
-            <Text style={styles.generateButtonText}>
-              {mode === 'create' ? '生成原创脚本' : '生成优化版本'}
-            </Text>
+            <Ionicons name="send-outline" size={20} color={theme.buttonText} />
+            <Text style={styles.generateButtonText}>发送问题</Text>
           </TouchableOpacity>
-        )
-      )}
+        </View>
+      ) : null}
     </ScrollView>
   )
 }
@@ -468,31 +513,6 @@ const getStyles = (theme: any) => StyleSheet.create({
     color: theme.textColor,
     marginBottom: 12,
   },
-  modeSelector: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  modeButton: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: theme.borderColor,
-    alignItems: 'center',
-    gap: 8,
-  },
-  modeButtonActive: {
-    backgroundColor: theme.primaryColor,
-    borderColor: theme.primaryColor,
-  },
-  modeButtonText: {
-    fontSize: 14,
-    color: theme.textColor,
-    fontWeight: '500',
-  },
-  modeButtonTextActive: {
-    color: theme.buttonText,
-  },
   uploadButton: {
     height: 200,
     borderWidth: 2,
@@ -511,6 +531,44 @@ const getStyles = (theme: any) => StyleSheet.create({
     width: '100%',
     height: '100%',
     borderRadius: 12,
+  },
+  mediaPreview: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  videoPreviewPlaceholder: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  mediaTypeLabel: {
+    fontSize: 14,
+    color: theme.primaryColor,
+    fontWeight: '600',
+  },
+  videoDurationLabel: {
+    fontSize: 12,
+    color: theme.placeholderColor,
+    marginTop: 4,
+  },
+  clearMediaButton: {
+    marginTop: 12,
+    alignSelf: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: theme.cardBackground,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.borderColor,
+  },
+  clearMediaButtonText: {
+    fontSize: 14,
+    color: theme.textColor,
   },
   input: {
     borderWidth: 1,
@@ -611,9 +669,6 @@ const getStyles = (theme: any) => StyleSheet.create({
     fontWeight: 'bold',
     color: theme.textColor,
     marginBottom: 12,
-  },
-  scriptScroll: {
-    maxHeight: 400,
   },
   scriptText: {
     fontSize: 14,
