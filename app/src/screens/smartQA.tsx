@@ -66,39 +66,6 @@ const REPLY_STYLES = [
   { key: 'direct', label: '直接型', description: '快速解决问题' },
 ]
 
-// 内容分段函数（用于选择性复制）
-const parseContents = (content: string): string[] => {
-  if (!content || typeof content !== 'string') return []
-
-  // 尝试使用 --- 分割
-  if (content.includes('---')) {
-    return content.split('---').map(s => s.trim()).filter(s => s.length > 0)
-  }
-
-  // 尝试使用数字序号分割
-  const numberPattern = /^\d+\.|\d+、/m
-  if (numberPattern.test(content)) {
-    const parts = content.split(/^\d+\.|\d+、/m).map(s => s.trim()).filter(s => s.length > 0)
-    if (parts.length > 1) return parts
-  }
-
-  // 尝试使用emoji分割
-  const emojiPattern = /^[📋🔍💡✨⭐️🎯📌📝🗒️]/m
-  if (emojiPattern.test(content)) {
-    const parts = content.split(/^[📋🔍💡✨⭐️🎯📌📝🗒️]/m).map(s => s.trim()).filter(s => s.length > 0)
-    if (parts.length > 1) return parts
-  }
-
-  // 尝试使用章节标题分割（## 开头）
-  if (content.includes('##')) {
-    const parts = content.split(/^##\s+/m).map(s => s.trim()).filter(s => s.length > 0)
-    if (parts.length > 1) return parts
-  }
-
-  // 默认返回整个内容作为一个段落
-  return [content]
-}
-
 export function SmartQA() {
   const [loading, setLoading] = useState(false)
   const [abortController, setAbortController] = useState<AbortController | null>(null)
@@ -564,7 +531,7 @@ export function SmartQA() {
       {replyOptions.length > 0 && !loading && (
         <View style={styles.repliesContainer}>
           <Text style={styles.repliesTitle}>✨ 回复选项</Text>
-          <Text style={styles.hintText}>💡 点击选中卡片，长按弹出操作菜单</Text>
+          <Text style={styles.hintText}>💡 点击卡片可复制，右上角聊天图标可直接追问</Text>
           {replyOptions.map((reply) => (
             <TouchableOpacity
               key={reply.id}
@@ -597,32 +564,131 @@ export function SmartQA() {
                 </View>
               </View>
 
-              {/* 分割显示各部分内容 */}
-              <View style={styles.contentSections}>
-                {parseContents(reply.content).map((content, index) => (
-                  <View key={index} style={styles.contentSection}>
-                    <View style={styles.contentHeader}>
-                      <Text style={styles.contentTitle}>第 {index + 1} 部分</Text>
-                      <TouchableOpacity
-                        style={styles.copyBtn}
-                        onPress={() => copyToClipboard(content)}
-                      >
-                        <Ionicons name="copy-outline" size={14} color={theme.primaryColor} />
-                        <Text style={styles.copyBtnText}>复制</Text>
-                      </TouchableOpacity>
-                    </View>
-                    {/* 使用 TextInput 支持手动选择文字 */}
-                    <TextInput
-                      style={styles.selectableContent}
-                      value={content}
-                      multiline
-                      editable={false}
-                      selectTextOnFocus={true}
-                      textAlignVertical="top"
-                    />
-                  </View>
-                ))}
-              </View>
+              {/* 使用 Markdown 渲染内容 */}
+              <ScrollView nestedScrollEnabled horizontal={false} showsVerticalScrollIndicator={false}>
+                <Markdown style={{
+                  body: {
+                    color: theme.textColor,
+                    fontSize: 15,
+                    lineHeight: 24,
+                  },
+                  heading1: {
+                    color: theme.primaryColor,
+                    fontSize: 20,
+                    fontWeight: 'bold',
+                    marginBottom: 12,
+                    marginTop: 8,
+                  },
+                  heading2: {
+                    color: theme.primaryColor,
+                    fontSize: 18,
+                    fontWeight: 'bold',
+                    marginBottom: 10,
+                    marginTop: 6,
+                  },
+                  heading3: {
+                    color: theme.textColor,
+                    fontSize: 16,
+                    fontWeight: '600',
+                    marginBottom: 8,
+                    marginTop: 4,
+                  },
+                  heading4: {
+                    color: theme.textColor,
+                    fontSize: 15,
+                    fontWeight: '600',
+                    marginBottom: 6,
+                    marginTop: 2,
+                  },
+                  heading5: {
+                    color: theme.textColor,
+                    fontSize: 14,
+                    fontWeight: '600',
+                    marginBottom: 4,
+                    marginTop: 2,
+                  },
+                  heading6: {
+                    color: theme.textColor,
+                    fontSize: 13,
+                    fontWeight: '600',
+                    marginBottom: 4,
+                    marginTop: 2,
+                  },
+                  hr: {
+                    backgroundColor: theme.borderColor,
+                    height: 1,
+                    marginVertical: 12,
+                  },
+                  blockquote: {
+                    borderLeftColor: theme.primaryColor,
+                    borderLeftWidth: 3,
+                    paddingLeft: 12,
+                    backgroundColor: theme.primaryColor + '10',
+                    marginVertical: 8,
+                    paddingVertical: 8,
+                    paddingRight: 8,
+                  },
+                  blockquote_node: {
+                    color: theme.placeholderColor,
+                  },
+                  bullet_list: {
+                    color: theme.textColor,
+                  },
+                  list_item: {
+                    color: theme.textColor,
+                    marginBottom: 4,
+                  },
+                  paragraph: {
+                    color: theme.textColor,
+                    marginBottom: 8,
+                  },
+                  strong: {
+                    fontWeight: 'bold',
+                    color: theme.primaryColor,
+                  },
+                  em: {
+                    fontStyle: 'italic',
+                    color: theme.textColor,
+                  },
+                  code_inline: {
+                    backgroundColor: theme.primaryColor + '20',
+                    color: theme.primaryColor,
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 4,
+                    fontSize: 13,
+                    fontFamily: 'monospace',
+                  },
+                  code_block: {
+                    backgroundColor: theme.primaryColor + '20',
+                    borderRadius: 8,
+                    padding: 12,
+                    marginVertical: 8,
+                  },
+                  code_block_content: {
+                    color: theme.textColor,
+                    fontSize: 13,
+                    fontFamily: 'monospace',
+                  },
+                  fence: {
+                    backgroundColor: theme.primaryColor + '20',
+                    borderRadius: 8,
+                    padding: 12,
+                    marginVertical: 8,
+                  },
+                  fence_content: {
+                    color: theme.textColor,
+                    fontSize: 13,
+                    fontFamily: 'monospace',
+                  },
+                  link: {
+                    color: theme.primaryColor,
+                    textDecorationLine: 'underline',
+                  },
+                }}>
+                  {reply.content}
+                </Markdown>
+              </ScrollView>
             </TouchableOpacity>
           ))}
         </View>

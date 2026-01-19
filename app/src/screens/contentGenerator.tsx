@@ -11,16 +11,14 @@ import {
   KeyboardAvoidingView,
 } from 'react-native'
 import * as Clipboard from 'expo-clipboard'
-import { useState, useContext, useRef } from 'react'
+import { useState, useContext, useRef, useEffect } from 'react'
 import { ThemeContext } from '../context'
 import * as ImagePicker from 'expo-image-picker'
 import Ionicons from '@expo/vector-icons/Ionicons'
-import { v4 as uuid } from 'uuid'
-import { MODELS } from '../../constants'
+import Markdown from '@ronradtke/react-native-markdown-display'
 import { fetchStream } from '../utils'
 import { API_KEYS } from '../../constants'
 import { historyService } from '../services/historyService'
-import Markdown from '@ronradtke/react-native-markdown-display'
 
 interface ContentStyle {
   key: string
@@ -44,7 +42,7 @@ interface Message {
   suggestedQuestions?: string[]
 }
 
-const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+const generateId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
 
 const CONTENT_STYLES: ContentStyle[] = [
   { key: 'professional', label: '专业引导', description: '突出技术实力和案例效果' },
@@ -72,6 +70,32 @@ const SUGGESTED_QUESTIONS = [
   '生成一个更简短的版本',
 ]
 
+// 内容分段函数（用于选择性复制）
+const parseContents = (content: string): string[] => {
+  if (!content || typeof content !== 'string') return []
+
+  // 清理转义字符（支持多种格式，包括 \\n  literal 字符串）
+  // 先处理双反斜杠的情况（JSON 编码），再处理单反斜杠
+  let cleaned = content
+    // 1. 先把 \\n 替换为实际换行（双反斜杠-n）
+    .replace(/\\\\n/g, '\n')
+    // 2. 再把 \n 替换为实际换行（单反斜杠-n）
+    .replace(/\\n/g, '\n')
+    // 3. 处理其他转义字符
+    .replace(/\\t/g, '    ')
+    .replace(/\\r/g, '')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+    .trim()
+
+  // 尝试使用 --- 分割
+  if (cleaned.includes('---')) {
+    return cleaned.split('---').map(s => s.trim()).filter(s => s.length > 0)
+  }
+  // 默认返回整个内容作为一个段落
+  return [cleaned]
+}
+
 export function ContentGenerator() {
   const [loading, setLoading] = useState(false)
   const [abortController, setAbortController] = useState<AbortController | null>(null)
@@ -94,6 +118,12 @@ export function ContentGenerator() {
   const { theme } = useContext(ThemeContext)
   const styles = getStyles(theme)
   const flatListRef = useRef<FlatList>(null)
+  const messagesRef = useRef<Message[]>(messages)
+
+  // 更新 messagesRef 当 messages 变化时
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
 
   // 停止响应
   const stopResponse = () => {
@@ -161,6 +191,15 @@ export function ContentGenerator() {
     setShowSettings(false) // 隐藏设置面板
 
     try {
+      const openaiKey = API_KEYS.OPENAI
+      const geminiKey = API_KEYS.GEMINI
+
+      if (!openaiKey && !geminiKey) {
+        setLoading(false)
+        Alert.alert('提示', '请先配置 API Key')
+        return
+      }
+
       const selectedPersonaObj = PERSONAS.find(p => p.key === selectedPersona)
       const selectedStyleObj = CONTENT_STYLES.find(s => s.key === selectedStyle)
 
@@ -184,9 +223,9 @@ export function ContentGenerator() {
       }
 
       // 构建对话历史
-      const conversationHistory = messages
-        .filter(m => m.isComplete)
-        .map(m => ({
+      const conversationHistory = messagesRef.current
+        .filter((m: any) => m.isComplete)
+        .map((m: any) => ({
           role: m.type === 'user' ? 'user' as const : 'assistant' as const,
           content: m.content
         }))
@@ -196,23 +235,25 @@ export function ContentGenerator() {
         ? '\n\n【特别提示】这是生活类内容，请创作纯生活方式/个人感悟类文案，不要提及任何医美、整形、整形手术、注射、项目等专业医美内容。内容应该轻松、自然、贴近生活。'
         : '\n\n【特别提示】这是医美行业内容，可以适当融入医美相关元素。'
 
-      const systemPrompt = `你是一位专业的文案创作专家，根据用户选择的人设风格创作内容。
+      const prompt = `你是一位专业的医美朋友圈文案创作专家。
 
-【重要】直接输出最终结果，不要输出思考过程。
+根据用户需求，直接输出文案内容。
 
-## 输出格式要求：
-1. 生成3条不同风格的文案
-2. 每条文案要有明显的分隔（使用 "---" 三连横线分隔）
-3. 文案要自然流畅，符合内容调性
-4. 适当使用emoji，但不要过度
-5. 每条文案角度不同，避免重复
+要求：
+- 自然流畅，符合医美行业特点
+- 适当融入关键词
+- 引导客户互动或咨询
+
+直接输出文案，不需要任何格式说明。
 
 ## 用户需求：
 人设风格：${selectedPersonaObj?.label} - ${selectedPersonaObj?.description}
 内容风格：${selectedStyleObj?.label} - ${selectedStyleObj?.description}
 目标字数：${wordCount}${styleHint}
 
-如果用户要求修改或调整，请基于之前生成的内容进行优化。`
+如果用户要求修改或调整，请基于之前生成的内容进行优化。
+
+用户需求：${userContent}`
 
       let localResponse = ''
       const controller = new AbortController()
@@ -229,32 +270,72 @@ export function ContentGenerator() {
 
       setMessages(prev => [...prev, assistantMessage])
 
-      // 构建消息 - 把 prompt 放在 user content 开头
-      const userMessageContent = systemPrompt + '\n\n用户需求：' + userContent
+      // 处理图片（和面部美学保持一致）
+      let imageContents: string[] = []
+      if (!isFollowUp && images.length > 0) {
+        imageContents = await Promise.all(images.map(async (imageUri) => {
+          const response = await fetch(imageUri)
+          const blob = await response.blob()
+          return new Promise<string>((resolve) => {
+            const reader = new FileReader()
+            reader.onloadend = () => {
+              resolve(reader.result as string)
+            }
+            reader.readAsDataURL(blob)
+          })
+        }))
+      }
 
+      // 构建多模态消息（和面部美学保持一致）
+      const messages = [
+        ...conversationHistory,
+        {
+          role: 'user' as const,
+          content: imageContents.length > 0
+            ? [
+                { type: 'text' as const, text: prompt },
+                ...imageContents.map((img: string) => ({
+                  type: 'image_url' as const,
+                  image_url: { url: img }
+                }))
+              ]
+            : prompt
+        }
+      ]
+
+      // 调用流式 API（和面部美学保持一致）
       await fetchStream({
         body: {
-          messages: [
-            ...conversationHistory,
-            { role: 'user', content: userMessageContent }
-          ],
+          messages,
           model: 'gemini-3-flash-preview',
+          temperature: 0.5,
           stream: true
         },
-        type: 'openai',
-        apiKey: API_KEYS.OPENAI,
+        apiKey: openaiKey || geminiKey,
         abortController: controller,
         onMessage: (data) => {
-          const content = data.choices?.[0]?.delta?.reasoning_content ||
-                         data.choices?.[0]?.delta?.content || ''
-
-          if (content) {
-            localResponse += content
-            setMessages(prev => {
-              const newMessages = [...prev]
-              newMessages[newMessages.length - 1].content = localResponse
-              return newMessages
-            })
+          try {
+            if (data.choices && data.choices[0]?.delta?.content) {
+              let newContent = data.choices[0].delta.content
+              // 清理转义字符（支持 \\n literal 字符串）
+              newContent = newContent
+                .replace(/\\\\n/g, '\n')
+                .replace(/\\n/g, '\n')
+                .replace(/\\t/g, '    ')
+                .replace(/\\r/g, '')
+              localResponse += newContent
+              setMessages(prev => {
+                const newMessages = [...prev]
+                newMessages[newMessages.length - 1].content = localResponse
+                return newMessages
+              })
+              // 强制触发UI重绘
+              setTimeout(() => {
+                setMessages(current => [...current])
+              }, 0)
+            }
+          } catch (error) {
+            console.error('Failed to parse stream data:', error)
           }
         },
         onError: (error) => {
@@ -308,11 +389,24 @@ export function ContentGenerator() {
           }
         }
       })
-
-    } catch (error) {
+    } catch (error: any) {
       console.error('生成失败:', error)
-      Alert.alert('提示', '生成失败，请重试')
       setLoading(false)
+      setAbortController(null)
+
+      setMessages(prev => {
+        const newMessages = [...prev]
+        const lastIndex = newMessages.length - 1
+        if (lastIndex >= 0) {
+          newMessages[lastIndex] = {
+            ...newMessages[lastIndex],
+            content: error.message || '生成失败，请重试',
+            isComplete: true,
+            suggestedQuestions: SUGGESTED_QUESTIONS.slice(0, 3)
+          }
+        }
+        return newMessages
+      })
     }
   }
 
@@ -334,30 +428,8 @@ export function ContentGenerator() {
     }
   }
 
-  // 解析文案内容，分割成多段
-  const parseContents = (text: string): string[] => {
-    // 按常见分隔符分割
-    const separators = [/\n---\n/, /\n\n---\n\n/, /【文案[一二三123]】/, /文案[一二三123][:：]/, /\n\n(?=\d+[\.\、])/, /\n\n(?=[①②③])/]
-
-    for (const sep of separators) {
-      const parts = text.split(sep).filter(p => p.trim().length > 20)
-      if (parts.length >= 2) {
-        return parts.map(p => p.trim())
-      }
-    }
-
-    // 如果没有明显分隔，尝试按双换行分割
-    const paragraphs = text.split(/\n\n+/).filter(p => p.trim().length > 30)
-    if (paragraphs.length >= 2) {
-      return paragraphs
-    }
-
-    return [text]
-  }
-
   const renderMessage = ({ item }: { item: Message }) => {
     const isUser = item.type === 'user'
-    const contents = isUser ? [] : parseContents(item.content)
 
     return (
       <View style={[styles.messageContainer, isUser ? styles.userMessage : styles.assistantMessage]}>
@@ -376,129 +448,24 @@ export function ContentGenerator() {
             <Text style={styles.userMessageText}>{item.content}</Text>
           ) : (
             <View>
-              {contents.length > 1 ? (
-                // 分段显示，每段可单独复制
-                contents.map((content, index) => (
-                  <View key={index} style={styles.contentSection}>
-                    <View style={styles.contentHeader}>
-                      <Text style={styles.contentIndex}>文案 {index + 1}</Text>
-                      <TouchableOpacity
-                        style={styles.copyBtn}
-                        onPress={() => copyContent(content)}
-                      >
-                        <Ionicons name="copy-outline" size={16} color={theme.primaryColor} />
-                        <Text style={styles.copyBtnText}>复制</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <Markdown selectable={true} style={{
-                      body: { color: theme.textColor, fontSize: 14, lineHeight: 22 },
-                      paragraph: { color: theme.textColor, fontSize: 14, lineHeight: 22 },
-                      strong: { color: theme.primaryColor, fontWeight: 'bold' },
-                      em: { fontStyle: 'italic' },
-                      code_inline: {
-                        backgroundColor: theme.primaryColor + '20',
-                        color: theme.primaryColor,
-                        paddingHorizontal: 6,
-                        paddingVertical: 2,
-                        borderRadius: 4,
-                        fontSize: 12,
-                      },
-                      code_block: {
-                        backgroundColor: '#1e1e1e',
-                        padding: 12,
-                        borderRadius: 8,
-                        marginVertical: 8,
-                      },
-                      fence: {
-                        backgroundColor: '#1e1e1e',
-                        padding: 12,
-                        borderRadius: 8,
-                        marginVertical: 8,
-                      },
-                      blockquote: {
-                        borderLeftWidth: 3,
-                        borderLeftColor: theme.primaryColor,
-                        paddingLeft: 12,
-                        marginVertical: 8,
-                        color: theme.placeholderColor,
-                      },
-                    }}>
-                      {content}
-                    </Markdown>
+              {parseContents(item.content).map((content, index) => (
+                <View key={index} style={styles.contentSection}>
+                  <View style={styles.contentHeader}>
+                    <Text style={styles.contentTitle}>第 {index + 1} 部分</Text>
+                    <TouchableOpacity
+                      style={styles.copyBtn}
+                      onPress={() => copyContent(content)}
+                    >
+                      <Ionicons name="copy-outline" size={16} color={theme.primaryColor} />
+                      <Text style={styles.copyBtnText}>复制</Text>
+                    </TouchableOpacity>
                   </View>
-                ))
-              ) : (
-                <Markdown selectable={true} style={{
-                  body: { color: theme.textColor, fontSize: 14, lineHeight: 22 },
-                  paragraph: { color: theme.textColor, fontSize: 14, lineHeight: 22 },
-                  strong: { color: theme.primaryColor, fontWeight: 'bold' },
-                  em: { fontStyle: 'italic' },
-                  code_inline: {
-                    backgroundColor: theme.primaryColor + '20',
-                    color: theme.primaryColor,
-                    paddingHorizontal: 6,
-                    paddingVertical: 2,
-                    borderRadius: 4,
-                    fontSize: 12,
-                  },
-                  code_block: {
-                    backgroundColor: '#1e1e1e',
-                    padding: 12,
-                    borderRadius: 8,
-                    marginVertical: 8,
-                  },
-                  fence: {
-                    backgroundColor: '#1e1e1e',
-                    padding: 12,
-                    borderRadius: 8,
-                    marginVertical: 8,
-                  },
-                  blockquote: {
-                    borderLeftWidth: 3,
-                    borderLeftColor: theme.primaryColor,
-                    paddingLeft: 12,
-                    marginVertical: 8,
-                    color: theme.placeholderColor,
-                  },
-                }}>
-                  {item.content}
-                </Markdown>
-              )}
+                  <Markdown style={styles.markdownStyle}>{content}</Markdown>
+                </View>
+              ))}
             </View>
           )}
         </View>
-
-        {/* 操作按钮 - 只在完成时显示 */}
-        {!isUser && item.isComplete && (
-          <View style={styles.messageActions}>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={() => copyContent(item.content)}
-            >
-              <Ionicons name="copy-outline" size={18} color="#666" />
-              <Text style={styles.actionBtnText}>复制全部</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={async () => {
-                try {
-                  await historyService.saveRecord({
-                    type: 'content',
-                    title: `文案收藏 - ${keywords}`,
-                    prompt: `关键词：${keywords}`,
-                    result: item.content,
-                  })
-                  Alert.alert('提示', '已收藏到历史记录')
-                } catch (error) {
-                  Alert.alert('提示', '收藏失败')
-                }
-              }}
-            >
-              <Ionicons name="heart-outline" size={18} color="#666" />
-              <Text style={styles.actionBtnText}>收藏</Text>
-            </TouchableOpacity>
-          </View>
-        )}
 
         {/* 引导性提问 */}
         {!isUser && item.isComplete && item.suggestedQuestions && item.suggestedQuestions.length > 0 && (
@@ -929,6 +896,47 @@ const getStyles = (theme: any) => StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  markdownStyle: {
+    body: {
+      color: theme.textColor,
+      fontSize: 15,
+      lineHeight: 22,
+    },
+    heading1: {
+      color: theme.primaryColor,
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginBottom: 8,
+    },
+    heading2: {
+      color: theme.primaryColor,
+      fontSize: 17,
+      fontWeight: '600',
+      marginBottom: 6,
+    },
+    heading3: {
+      color: theme.textColor,
+      fontSize: 16,
+      fontWeight: '600',
+      marginBottom: 4,
+    },
+    bullet_list: {
+      color: theme.textColor,
+    },
+    list_item: {
+      color: theme.textColor,
+      marginBottom: 2,
+    },
+    strong: {
+      fontWeight: 'bold',
+      color: theme.primaryColor,
+    },
+  },
+  contentTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: theme.primaryColor,
+  },
   contentSection: {
     marginBottom: 16,
     paddingBottom: 12,
@@ -940,11 +948,6 @@ const getStyles = (theme: any) => StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
-  },
-  contentIndex: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: theme.primaryColor,
   },
   copyBtn: {
     flexDirection: 'row',
