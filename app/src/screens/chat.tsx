@@ -1,1058 +1,440 @@
+import { useState, useContext, useEffect, useRef } from 'react'
 import {
   View,
   Text,
-  KeyboardAvoidingView,
   StyleSheet,
-  TouchableHighlight,
   TextInput,
-  ScrollView,
+  TouchableOpacity,
   ActivityIndicator,
-  FlatList,
-  Keyboard
+  Alert,
+  StatusBar,
+  SafeAreaView,
+  ScrollView,
+  Image,
+  Modal
 } from 'react-native'
-import 'react-native-get-random-values'
-import { useContext, useState, useRef, useEffect } from 'react'
-import { ThemeContext, AppContext } from '../context'
-import { getEventSource, getFirstN, getFirstNCharsOrLess, getChatType } from '../utils'
-import { v4 as uuid } from 'uuid'
-import Ionicons from '@expo/vector-icons/Ionicons'
-import {
-  IOpenAIMessages,
-  IOpenAIStateWithIndex
-} from '../../types'
-import * as Clipboard from 'expo-clipboard'
+import { ThemeContext } from '../context'
+import { Ionicons } from '@expo/vector-icons'
 import { useActionSheet } from '@expo/react-native-action-sheet'
+import * as ImagePicker from 'expo-image-picker'
 import Markdown from '@ronradtke/react-native-markdown-display'
-import { API_KEYS } from '../../constants'
-import { apiService } from '../services/apiService'
-import AsyncStorage from '@react-native-async-storage/async-storage'
+import { chatService } from '../services/chatService'
+import { Message } from '../types/chat'
+
+interface ImageItem {
+  uri: string
+  base64?: string
+}
+
+// 模型配置
+const MODELS = [
+  { id: 'gpt-5.2', name: 'GPT-5.2', color: '#10A37F', apiKey: 'sk-7bW8PnA4sv9mt7ipJsNzkDDtYSOYlb60kusyzJmqaTo52zld' },
+  { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro', color: '#4285F4', apiKey: 'sk-5dsmWDBRPKaSnSC3HYBp9shak39KFgZjgjdXM7BiDEmxbaif' }
+]
+
+const API_BASE = 'https://yunwu.ai/v1/chat/completions'
 
 export function Chat() {
-  const [loading, setLoading] = useState<boolean>(false)
-  const [input, setInput] = useState<string>('')
-  const scrollViewRef = useRef<ScrollView | null>(null)
+  const { theme } = useContext(ThemeContext)
   const { showActionSheetWithOptions } = useActionSheet()
 
-  // API keys 状态
-  const [openaiApiKey, setOpenaiApiKey] = useState<string>('')
-  const [geminiApiKey, setGeminiApiKey] = useState<string>('')
+  const [loading, setLoading] = useState(false)
+  const [input, setInput] = useState('')
+  const [messages, setMessages] = useState<Message[]>([])
+  const [selectedModel, setSelectedModel] = useState(MODELS[0])
+  const [streamingContent, setStreamingContent] = useState('')
+  const [selectedImages, setSelectedImages] = useState<ImageItem[]>([])
+  const streamingContentRef = useRef('')
+  const scrollViewRef = useRef<ScrollView>(null)
 
-  // 初始化 API Keys
+  const colors = theme || {
+    backgroundColor: '#F8F9FA',
+    textColor: '#2C3E50',
+    borderColor: '#DDDDDD',
+    tintColor: '#4A90E2',
+    tintTextColor: '#FFFFFF',
+    placeholderTextColor: '#999999'
+  }
+
   useEffect(() => {
-    async function initializeKeys() {
-      // 首先尝试从 constants 导入的硬编码密钥
-      if (API_KEYS.OPENAI) {
-        setOpenaiApiKey(API_KEYS.OPENAI)
-      }
-      if (API_KEYS.GEMINI) {
-        setGeminiApiKey(API_KEYS.GEMINI)
-      }
-
-      // 然后尝试从 apiService 加载（会优先使用 AsyncStorage 中的值）
-      try {
-        await apiService.loadApiKeys()
-        const { hasOpenAI, hasGemini } = apiService.hasApiKeys()
-
-        if (hasOpenAI) {
-          // 从 AsyncStorage 或环境变量获取
-          const stored = await AsyncStorage.getItem('openai_api_key')
-          if (stored) setOpenaiApiKey(stored)
-        }
-        if (hasGemini) {
-          const stored = await AsyncStorage.getItem('gemini_api_key')
-          if (stored) setGeminiApiKey(stored)
-        }
-      } catch (error) {
-        console.error('Failed to initialize API keys:', error)
-      }
-    }
-
-    initializeKeys()
+    loadSession()
   }, [])
 
-  // 调试输出
-  useEffect(() => {
-    console.log('=== API Keys Debug ===')
-    console.log('OpenAI Key:', openaiApiKey ? `${openaiApiKey.substring(0, 10)}... (${openaiApiKey.length})` : 'NOT FOUND')
-    console.log('Gemini Key:', geminiApiKey ? `${geminiApiKey.substring(0, 10)}... (${geminiApiKey.length})` : 'NOT FOUND')
-  }, [openaiApiKey, geminiApiKey])
-
-  // claude state management
-  const [claudeResponse, setClaudeResponse] = useState({
-    messages: [],
-    index: uuid(),
-  })
-
-  // openAI state management
-  const [openaiMessages, setOpenaiMessages] = useState<IOpenAIMessages[]>([])
-  const [openaiResponse, setOpenaiResponse] = useState<IOpenAIStateWithIndex>({
-    messages: [],
-    index: uuid()
-  })
-
-  // cohere state management
-  const [cohereResponse, setCohereResponse] = useState({
-    messages: [],
-    index: uuid()
-  })
-
-  // mistral state management
-  const [mistralAPIMessages, setMistralAPIMessages] = useState('')
-  const [mistralResponse, setMistralResponse] = useState({
-    messages: [],
-    index: uuid()
-  })
-
-
-  // Gemini state management
-  const [geminiAPIMessages, setGeminiAPIMessages] = useState('')
-  const [geminiResponse, setGeminiResponse] = useState({
-    messages: [],
-    index: uuid()
-  })
-
-  const { theme } = useContext(ThemeContext)
-  const { chatType } = useContext(AppContext)
-  const styles = getStyles(theme)
-
-  async function chat() {
-    if (!input) return
-    Keyboard.dismiss()
-    if (chatType.label.includes('claude')) {
-      generateClaudeResponse()
-    } else if (chatType.label.includes('cohere')) {
-      generateCohereResponse()
-    } else if (chatType.label.includes('mistral')) {
-      generateMistralResponse()
-    } else if (chatType.label.includes('gemini')) {
-      generateGeminiResponse()
-    }
-    else {
-      generateOpenaiResponse()
+  async function loadSession() {
+    try {
+      const sessions = await chatService.getSessions()
+      if (sessions.length > 0) {
+        setMessages(sessions[0].messages)
+        const model = MODELS.find(m => m.id === sessions[0].modelId)
+        if (model) setSelectedModel(model)
+      }
+    } catch (e) {
+      console.log('load error', e)
     }
   }
-  async function generateGeminiResponse() {
-    if (!input) return
-    if (!geminiApiKey) {
-      console.error('❌ Gemini API Key not loaded')
-      return
-    }
-    Keyboard.dismiss()
-    let localResponse = ''
-    const geminiInput = `${input}`
 
-    let geminiArray = [
-      ...geminiResponse.messages, {
-        user: input,
-      }
-    ] as [{user: string, assistant?: string}]
-
-    setGeminiResponse(c => ({
-      index: c.index,
-      messages: JSON.parse(JSON.stringify(geminiArray))
-    }))
-
-    setLoading(true)
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({
-        animated: true
-      })
-    }, 1)
-    setInput('')
-
-    const eventSourceArgs = {
-      body: {
-        prompt: geminiInput,
-        model: chatType.label
-      },
-      type: getChatType(chatType),
-      apiKey: geminiApiKey  // 使用 geminiApiKey 因为这是 Gemini 调用
-    }
-
-    const es = await getEventSource(eventSourceArgs)
-
-   
-    const listener = (event) => {
-      if (event.type === "open") {
-        console.log("Open SSE connection.")
-        setLoading(false)
-      } else if (event.type === "message") {
-        if (event.data !== "[DONE]") {
-          if (localResponse.length < 850) {
-            scrollViewRef.current?.scrollToEnd({
-              animated: true
-            })
-          }
-        
-          const data = event.data
-          localResponse = localResponse + JSON.parse(data)
-          geminiArray[geminiArray.length - 1].assistant = localResponse
-          setGeminiResponse(c => ({
-            index: c.index,
-            messages: JSON.parse(JSON.stringify(geminiArray))
-          }))
-        } else {
-          setLoading(false)
-          setGeminiAPIMessages(
-            `${geminiAPIMessages}\n\nPrompt: ${input}\n\nResponse:${localResponse}`
-          )
-          es.close()
-        }
-      } else if (event.type === "error") {
-        console.error("Connection error:", event.message)
-        setLoading(false)
-      } else if (event.type === "exception") {
-        console.error("Error:", event.message, event.error)
-        setLoading(false)
-      }
-    }
-   
-    es.addEventListener("open", listener);
-    es.addEventListener("message", listener);
-    es.addEventListener("error", listener);
-  }
-
-  async function generateMistralResponse() {
-    if (!input) return
-    if (!openaiApiKey) {
-      console.error('❌ OpenAI API Key not loaded for Mistral')
-      return
-    }
-    Keyboard.dismiss()
-    let localResponse = ''
-    const mistralInput = `${mistralAPIMessages}\n\n Prompt: ${input}`
-
-    let mistralArray = [
-      ...mistralResponse.messages, {
-        user: input,
-      }
-    ] as [{user: string, assistant?: string}]
-
-    setMistralResponse(c => ({
-      index: c.index,
-      messages: JSON.parse(JSON.stringify(mistralArray))
-    }))
-
-    setLoading(true)
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({
-        animated: true
-      })
-    }, 1)
-    setInput('')
-
-    const eventSourceArgs = {
-      body: {
-        prompt: mistralInput,
-        model: chatType.label
-      },
-      type: getChatType(chatType),
-      apiKey: openaiApiKey  // Mistral 使用 OpenAI 兼容 API
-    }
-
-    const es = await getEventSource(eventSourceArgs)
-
-    const listener = (event) => {
-      if (event.type === "open") {
-        console.log("Open SSE connection.")
-        setLoading(false)
-      } else if (event.type === "message") {
-        if (event.data !== "[DONE]") {
-          if (localResponse.length < 850) {
-            scrollViewRef.current?.scrollToEnd({
-              animated: true
-            })
-          }
-          const data = event.data
-          localResponse = localResponse + JSON.parse(data).data
-
-          mistralArray[mistralArray.length - 1].assistant = localResponse
-          setMistralResponse(c => ({
-            index: c.index,
-            messages: JSON.parse(JSON.stringify(mistralArray))
-          }))
-        } else {
-          setLoading(false)
-          setMistralAPIMessages(
-            `${mistralAPIMessages}\n\nPrompt: ${input}\n\nResponse:${getFirstNCharsOrLess(localResponse, 2000)}`
-          )
-          es.close()
-        }
-      } else if (event.type === "error") {
-        console.error("Connection error:", event.message)
-        setLoading(false)
-      } else if (event.type === "exception") {
-        console.error("Error:", event.message, event.error)
-        setLoading(false)
-      }
-    }
-   
-    es.addEventListener("open", listener);
-    es.addEventListener("message", listener);
-    es.addEventListener("error", listener);
-  }
-
-  async function generateClaudeResponse() {
-    if (!input) return
-    if (!openaiApiKey) {
-      console.error('❌ OpenAI API Key not loaded for Claude')
-      return
-    }
-    Keyboard.dismiss()
-    let localResponse = ''
-
-    let claudeArray = [
-      ...claudeResponse.messages, {
-        user: input,
-      }
-    ] as [{user: string, assistant?: string}]
-
-    setClaudeResponse(c => ({
-      index: c.index,
-      messages: JSON.parse(JSON.stringify(claudeArray))
-    }))
-
-    setLoading(true)
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({
-        animated: true
-      })
-    }, 1)
-    setInput('')
-
-    // 构建符合 OpenAI API 标准的 messages 数组
-    const messages = claudeResponse.messages.flatMap(msg => {
-      const result = []
-      if (msg.user) {
-        result.push({ role: 'user', content: msg.user })
-      }
-      if (msg.assistant) {
-        result.push({ role: 'assistant', content: msg.assistant })
-      }
-      return result
+  async function pickImage() {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+      base64: true
     })
-    messages.push({ role: 'user', content: input })
 
-    const eventSourceArgs = {
-      body: {
-        messages: messages,
-        model: chatType.label === 'claude' ? 'gpt-5.1' : chatType.label,
-        stream: true
-      },
-      type: getChatType(chatType),
-      apiKey: openaiApiKey  // 使用 openaiApiKey
-    }
-
-    const es = await getEventSource(eventSourceArgs)
-
-    const listener = (event) => {
-      if (event.type === "open") {
-        console.log("Open SSE connection.")
-        setLoading(false)
-      } else if (event.type === "message") {
-        if (event.data !== "[DONE]") {
-          if (localResponse.length < 850) {
-            scrollViewRef.current?.scrollToEnd({
-              animated: true
-            })
-          }
-          try {
-            const data = JSON.parse(event.data)
-            // 兼容 OpenAI 标准响应格式
-            const content = data.choices?.[0]?.delta?.content || data.text || ''
-            localResponse = localResponse + content
-            claudeArray[claudeArray.length - 1].assistant = localResponse
-            setClaudeResponse(c => ({
-              index: c.index,
-              messages: JSON.parse(JSON.stringify(claudeArray))
-            }))
-          } catch (error) {
-            console.error('Failed to parse SSE data:', error)
-          }
-        } else {
-          setLoading(false)
-          es.close()
-        }
-      } else if (event.type === "error") {
-        console.error("Connection error:", event.message)
-        setLoading(false)
-      } else if (event.type === "exception") {
-        console.error("Error:", event.message, event.error)
-        setLoading(false)
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0]
+      const newImage: ImageItem = {
+        uri: asset.uri,
+        base64: asset.base64
       }
+      setSelectedImages([...selectedImages, newImage])
     }
-    es.addEventListener("open", listener)
-    es.addEventListener("message", listener)
-    es.addEventListener("error", listener)
   }
 
-  async function generateOpenaiResponse() {
+  function removeImage(index: number) {
+    const newImages = [...selectedImages]
+    newImages.splice(index, 1)
+    setSelectedImages(newImages)
+  }
+
+  async function sendMessage() {
+    if (!input.trim() && selectedImages.length === 0) return
+
+    const userMessage: Message = {
+      id: String(Date.now()),
+      role: 'user',
+      content: input,
+      timestamp: Date.now(),
+      images: selectedImages
+    }
+
+    const newMessages = [...messages, userMessage]
+    setMessages(newMessages)
+    setInput('')
+    setSelectedImages([])
+    setLoading(true)
+    setStreamingContent('')
+    streamingContentRef.current = ''
+
+    const assistantId = String(Date.now()) + 'a'
+    const tempAssistantMessage: Message = {
+      id: assistantId,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now()
+    }
+
+    setMessages([...newMessages, tempAssistantMessage])
+
     try {
-      if (!openaiApiKey) {
-        console.error('❌ OpenAI API Key not loaded')
-        return
-      }
-      setLoading(true)
-      // set message state for openai to have context on previous conversations
-      let messagesRequest = getFirstN({ messages: openaiMessages })
-      if (openaiResponse.messages.length) {
-        messagesRequest = [
-          ...messagesRequest,
-          {
-            role: 'assistant',
-            content: getFirstNCharsOrLess(
-              openaiResponse.messages[openaiResponse.messages.length -1].assistant
-            )
-          }
-        ]
-      }
-      messagesRequest = [...messagesRequest, {role: 'user', content: input}]
-      setOpenaiMessages(messagesRequest)
-
-      // set local openai state to dislay user's most recent question
-      let openaiArray = [
-        ...openaiResponse.messages,
-        {
-          user: input,
-          assistant: ''
+      await callAPIStream(input, selectedImages, (chunk) => {
+        if (chunk) {
+          streamingContentRef.current += chunk
+          setStreamingContent(streamingContentRef.current)
         }
-      ]
-      setOpenaiResponse(c => ({
-        index: c.index,
-        messages: JSON.parse(JSON.stringify(openaiArray))
-      }))
 
-      let localResponse = ''
-      const eventSourceArgs = {
-        body: {
-          messages: messagesRequest,
-          model: chatType.label
-        },
-        type: getChatType(chatType),
-        apiKey: openaiApiKey  // 使用 openaiApiKey
-      }
-      setInput('')
-      const eventSource = getEventSource({
-        body: eventSourceArgs.body,
-        type: eventSourceArgs.type,
-        apiKey: eventSourceArgs.apiKey
-      })
-
-      console.log('about to open listener...')
-      const listener = (event:any) => {
-        if (event.type === "open") {
-          console.log("Open SSE connection.")
-          setLoading(false)
-        } else if (event.type === 'message') {
-          if (event.data !== "[DONE]") {
-            if (localResponse.length < 850) {
-              scrollViewRef.current?.scrollToEnd({
-                animated: true
-              })
+        setMessages(prev => {
+          const updated = [...prev]
+          const lastIdx = updated.length - 1
+          if (lastIdx >= 0 && updated[lastIdx].id === assistantId) {
+            updated[lastIdx] = {
+              ...updated[lastIdx],
+              content: streamingContentRef.current
             }
-            // if (!JSON.parse(event.data).content) return
-            localResponse = localResponse + JSON.parse(event.data).content
-            openaiArray[openaiArray.length - 1].assistant = localResponse
-            setOpenaiResponse(c => ({
-              index: c.index,
-              messages: JSON.parse(JSON.stringify(openaiArray))
-            }))
-          } else {
-            setLoading(false)
-            eventSource.close()
           }
-        } else if (event.type === "error") {
-          console.error("Connection error:", event.message)
-          setLoading(false)
-          eventSource.close()
-        } else if (event.type === "exception") {
-          console.error("Error:", event.message, event.error)
-          setLoading(false)
-          eventSource.close()
-        }
-      }
-      eventSource.addEventListener("open", listener)
-      eventSource.addEventListener("message", listener)
-      eventSource.addEventListener("error", listener)
-    } catch (err) {
-      console.log('error in generateOpenaiResponse: ', err)
-    }
-  }
-
-  async function generateCohereResponse() {
-    try {
-      if (!input) return
-      if (!openaiApiKey) {
-        console.error('❌ OpenAI API Key not loaded for Cohere')
-        return
-      }
-      Keyboard.dismiss()
-      let localResponse = ''
-      let requestInput = input
-
-      let cohereArray = [
-        ...cohereResponse.messages,
-        {
-          user: input,
-          assistant: ''
-        }
-      ]
-
-      setCohereResponse(r => ({
-        index: r.index,
-        messages: JSON.parse(JSON.stringify(cohereArray))
-      }))
-
-      setLoading(true)
-      setInput('')
-      setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({
-          animated: true
+          return updated
         })
-      }, 1)
-
-      const eventSourceArgs = {
-        type: getChatType(chatType),
-        body: {
-          prompt: requestInput,
-          conversationId: cohereResponse.index,
-          model: chatType.label
-        },
-        apiKey: openaiApiKey  // Cohere 使用 OpenAI 兼容 API
-      }
-
-      const es = getEventSource(eventSourceArgs)
-
-      const listener = (event) => {
-        if (
-          event.data === "[DONE]"
-        ) {
-          console.log('done ....')
-          return es.close()
-        }
-        if (event.type === "open") {
-          setLoading(false)
-        } else if (event.type === 'message') {
-          try {
-            JSON.parse(event.data)
-            if (event.data !== "[DONE]" || !JSON.parse(event.data).is_finished) {
-              if (localResponse.length < 850) {
-                scrollViewRef.current?.scrollToEnd({
-                  animated: true
-                })
-              }
-              if (JSON.parse(event.data).text) {
-                if (!localResponse && JSON.parse(event.data).text === '\n') return
-                if (
-                  !localResponse && 
-                  JSON.parse(event.data).text.charAt(0) === ' '
-                ) {
-                  localResponse = JSON.parse(event.data).text.substring(1)
-                } else {
-                  localResponse = localResponse + JSON.parse(event.data).text
-                }
-                cohereArray[cohereArray.length - 1].assistant = localResponse
-                setCohereResponse(r => ({
-                  index: r.index,
-                  messages: JSON.parse(JSON.stringify(cohereArray))
-                }))
-              }
-              if (JSON.parse(event.data).is_finished) {
-                setLoading(false)
-                es.close()
-              }
-            } else {
-              setLoading(false)
-              es.close()
-            }
-          } catch (err) {
-            console.log('error parsing data ... ', err)
-            setLoading(false)
-            es.close()
-          }
-        } else if (event.type === "error" || event.type === "exception") {
-          console.error("Connection error:", event.message)
-          setLoading(false)
-          es.close()
-        } else {
-          console.error("Connection error:", event.message)
-          setLoading(false)
-          es.close()
-        }
-      }
-     
-      es.addEventListener("open", listener)
-      es.addEventListener("message", listener)
-      es.addEventListener("error", listener)
-    } catch (err) {
-      console.log('error generating cohere chat...', err)
+      })
+    } catch (error: any) {
+      console.log('API error:', error)
+    } finally {
+      setLoading(false)
+      setStreamingContent('')
     }
   }
 
-  async function copyToClipboard(text: string) {
-    await Clipboard.setStringAsync(text)
+  async function callAPI(prompt: string): Promise<string> {
+    const apiMessages = messages.slice(-10).map(m => ({ role: m.role, content: m.content }))
+    apiMessages.push({ role: 'user', content: prompt })
+
+    const response = await fetch(API_BASE, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${selectedModel.apiKey}`
+      },
+      body: JSON.stringify({
+        model: selectedModel.id,
+        messages: apiMessages,
+        stream: false
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`API错误: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data.choices?.[0]?.message?.content || '无响应'
   }
 
-  async function showClipboardActionsheet(text: string) {
-    const cancelButtonIndex = 2
-    showActionSheetWithOptions({
-      options: ['Copy to clipboard', 'Clear chat', 'cancel'],
-      cancelButtonIndex
-    }, selectedIndex => {
-      if (selectedIndex === Number(0)) {
-        copyToClipboard(text)
+  // 使用非流式API
+  async function callAPIStream(prompt: string, images: ImageItem[], onChunk: (content: string) => void): Promise<void> {
+    // 构建消息内容 - 支持多模态
+    let userContent: any
+
+    if (images && images.length > 0) {
+      // 多模态消息：文字 + 图片
+      const contentParts: any[] = []
+
+      if (prompt.trim()) {
+        contentParts.push({ type: 'text', text: prompt })
       }
-      if (selectedIndex === 1) {
-        clearChat()
+
+      for (const img of images) {
+        if (img.base64) {
+          contentParts.push({
+            type: 'image_url',
+            image_url: { url: `data:image/jpeg;base64,${img.base64}` }
+          })
+        }
       }
+
+      userContent = contentParts
+    } else {
+      userContent = prompt
+    }
+
+    const apiMessages = messages.slice(-10).map(m => {
+      if (m.images && m.images.length > 0) {
+        const contentParts: any[] = []
+        if (m.content) {
+          contentParts.push({ type: 'text', text: m.content })
+        }
+        for (const img of m.images) {
+          if (img.base64) {
+            contentParts.push({
+              type: 'image_url',
+              image_url: { url: `data:image/jpeg;base64,${img.base64}` }
+            })
+          }
+        }
+        return { role: m.role, content: contentParts }
+      }
+      return { role: m.role, content: m.content }
+    })
+
+    apiMessages.push({ role: 'user', content: userContent })
+
+    console.log('Calling API with images:', images?.length || 0)
+
+    const response = await fetch(API_BASE, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${selectedModel.apiKey}`
+      },
+      body: JSON.stringify({
+        model: selectedModel.id,
+        messages: apiMessages,
+        stream: false
+      })
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.log('Error:', errorText)
+      throw new Error(`API错误: ${response.status}`)
+    }
+
+    const data = await response.json()
+    console.log('Response received')
+
+    const content = data.choices?.[0]?.message?.content || '无响应'
+
+    // 模拟流式输出 - 加快速度
+    let i = 0
+    const chars = content.split('')
+    const interval = setInterval(() => {
+      if (i < chars.length) {
+        // 一次输出5个字符，加快速度
+        const chunk = chars.slice(i, i + 5).join('')
+        onChunk(chunk)
+        i += 5
+      } else {
+        clearInterval(interval)
+      }
+    }, 15)
+  }
+
+  function switchModel() {
+    const options = MODELS.map(m => m.name)
+    showActionSheetWithOptions({ options, cancelButtonIndex: 2 }, (idx) => {
+      if (idx !== undefined) setSelectedModel(MODELS[idx])
     })
   }
 
-  async function clearChat() {
-    if (loading) return
-    if (chatType.label.includes('claude')) {
-      setClaudeResponse({
-        messages: [],
-        index: uuid()
-      })
-    } else if (chatType.label.includes('cohere')) {
-      setCohereResponse({
-        messages: [],
-        index: uuid()
-      })
-    } else if (chatType.label.includes('mistral')) {
-      setMistralResponse({
-        messages: [],
-        index: uuid()
-      })
-      setMistralAPIMessages('')
-    } else if (chatType.label.includes('gemini')) {
-      setGeminiResponse({
-        messages: [],
-        index: uuid()
-      })
-      setGeminiAPIMessages('')
-    }
-     else {
-      setOpenaiResponse({
-        messages: [],
-        index: uuid()
-      })
-      setOpenaiMessages([])
-    }
-  }
+  const renderMessage = (msg: Message, index: number) => {
+    const isUser = msg.role === 'user'
+    const isLastAssistant = index === messages.length - 1 && !isUser && loading
 
-  function renderItem({
-    item, index
-  } : {
-    item: any, index: number
-  }) {
+    const displayContent = isLastAssistant && streamingContent ? streamingContent : msg.content
+
+    // 获取消息中的图片
+    const msgImages = msg.images || []
+
     return (
-      <View style={styles.promptResponse} key={index}>
-        <View style={styles.promptTextContainer}>
-          <View style={styles.promptTextWrapper}>
-            <Text style={styles.promptText}>
-              {item.user}
+      <View key={msg.id} style={[styles.messageRow, isUser ? styles.userRow : styles.assistantRow]}>
+        <View style={[
+          styles.bubble,
+          isUser
+            ? { backgroundColor: colors.tintColor }
+            : { backgroundColor: colors.backgroundColor, borderColor: colors.borderColor, borderWidth: 1 }
+        ]}>
+          {/* 显示用户消息中的图片 */}
+          {msgImages.length > 0 && (
+            <View style={styles.imageGrid}>
+              {msgImages.map((img, idx) => (
+                <Image key={idx} source={{ uri: img.uri }} style={styles.messageImage} />
+              ))}
+            </View>
+          )}
+          {/* AI回复使用Markdown渲染，支持选择文本 */}
+          {!isUser && displayContent ? (
+            <Markdown style={markdownStyles}>
+              {displayContent}
+            </Markdown>
+          ) : (
+            <Text selectable style={[styles.bubbleText, { color: isUser ? colors.tintTextColor : colors.textColor }]}>
+              {displayContent}
             </Text>
-          </View>
+          )}
+          {isLastAssistant && loading && <Text style={styles.cursor}>▊</Text>}
         </View>
-      {
-        item.assistant && (
-          <View style={styles.textStyleContainer}>
-            <Markdown
-              style={styles.markdownStyle as any}
-            >{item.assistant}</Markdown>
-            <TouchableHighlight
-              onPress={() => showClipboardActionsheet(item.assistant)}
-              underlayColor={'transparent'}
-            >
-              <View style={styles.optionsIconWrapper}>
-                <Ionicons
-                  name="apps"
-                  size={20}
-                  color={theme.textColor}
-                />
-              </View>
-            </TouchableHighlight>
-          </View>
-        )
-      }
       </View>
     )
   }
 
-  const callMade = (() => {
-    if (chatType.label.includes('claude')) {
-      return claudeResponse.messages.length > 0
-    }
-    if (chatType.label.includes('cohere')) {
-      return cohereResponse.messages.length > 0
-    }
-    if (chatType.label.includes('mistral')) {
-      return mistralResponse.messages.length > 0
-    }
-    if (chatType.label.includes('gemini')) {
-      return geminiResponse.messages.length > 0
-    }
-    return openaiResponse.messages.length > 0
-  })()
+  const markdownStyles = {
+    body: { color: colors.textColor, fontSize: 16 },
+    heading1: { color: colors.textColor, fontSize: 24, fontWeight: 'bold' as const, marginVertical: 8 },
+    heading2: { color: colors.textColor, fontSize: 20, fontWeight: 'bold' as const, marginVertical: 6 },
+    heading3: { color: colors.textColor, fontSize: 18, fontWeight: 'bold' as const, marginVertical: 4 },
+    code_inline: { backgroundColor: '#E0E0E0', paddingHorizontal: 4, borderRadius: 4, fontFamily: 'monospace' },
+    code_block: { backgroundColor: '#2D2D2D', color: '#F8F8F2', padding: 12, borderRadius: 8, fontFamily: 'monospace' },
+    fence: { backgroundColor: '#2D2D2D', color: '#F8F8F2', padding: 12, borderRadius: 8, fontFamily: 'monospace' },
+    blockquote: { backgroundColor: '#F0F0F0', borderLeftColor: colors.tintColor, borderLeftWidth: 4, paddingLeft: 12, paddingVertical: 8 },
+    link: { color: colors.tintColor, textDecorationLine: 'underline' as const },
+    list_item: { marginVertical: 4 },
+    bullet_list: { marginVertical: 4 },
+    ordered_list: { marginVertical: 4 }
+  }
 
   return (
-    <KeyboardAvoidingView
-      behavior="padding"
-      style={styles.container}
-      keyboardVerticalOffset={110}
-    >
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.backgroundColor }]}>
+      <StatusBar barStyle="dark-content" />
+
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={switchModel} style={styles.modelBtn}>
+          <View style={[styles.dot, { backgroundColor: selectedModel.color }]} />
+          <Text style={[styles.modelName, { color: colors.textColor }]}>{selectedModel.name}</Text>
+          <Ionicons name="chevron-down" size={16} color={colors.textColor} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Messages */}
       <ScrollView
-        keyboardShouldPersistTaps='handled'
         ref={scrollViewRef}
-        contentContainerStyle={!callMade && styles.scrollContentContainer}
+        style={styles.messages}
+        contentContainerStyle={styles.messagesContent}
+        onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
       >
-        {
-          !callMade && (
-            <View style={styles.midChatInputWrapper}>
-              <View style={styles.midChatInputContainer}>
-                
-                <TextInput
-                  onChangeText={v => setInput(v)}
-                  style={styles.midInput}
-                  placeholder='Message'
-                  placeholderTextColor={theme.placeholderTextColor}
-                  autoCorrect={true}
-                />
-                <TouchableHighlight
-                  onPress={chat}
-                  underlayColor={'transparent'}
-                >
-                  <View style={styles.midButtonStyle}>
-                    <Ionicons
-                      name="chatbox-ellipses-outline"
-                      size={22} color={theme.tintTextColor}
-                    />
-                    <Text style={styles.midButtonText}>
-                      Start {chatType.name} Chat
-                    </Text>
-                  </View>
-                </TouchableHighlight>
-                <Text style={styles.chatDescription}>
-                  Chat with a variety of different language models.
-                </Text>
-              </View>
-            </View>
-          )
-        }
-        {
-          callMade && (
-            <>
-            {
-              chatType.label.includes('gpt') && (
-                <FlatList
-                  data={openaiResponse.messages}
-                  renderItem={renderItem}
-                  scrollEnabled={false}
-                />
-              )
-            }
-            {
-              chatType.label.includes('claude') && (
-                <FlatList
-                  data={claudeResponse.messages}
-                  renderItem={renderItem}
-                  scrollEnabled={false}
-                />
-              )
-            }
-            {
-              chatType.label.includes('cohere') && (
-                <FlatList
-                  data={cohereResponse.messages}
-                  renderItem={renderItem}
-                  scrollEnabled={false}
-                />
-              )
-            }
-            {
-              chatType.label.includes('mistral') && (
-                <FlatList
-                  data={mistralResponse.messages}
-                  renderItem={renderItem}
-                  scrollEnabled={false}
-                />
-              )
-            }
-            {
-              chatType.label.includes('gemini') && (
-                <FlatList
-                  data={geminiResponse.messages}
-                  renderItem={renderItem}
-                  scrollEnabled={false}
-                />
-              )
-            }
-            </>
-          )
-        }
-        {
-          loading && (
-            <ActivityIndicator style={styles.loadingContainer} />
-          )
-        }
-      </ScrollView>
-      {
-        callMade && (
-          <View
-              style={styles.chatInputContainer}
-            >
-            <TextInput
-              style={styles.input}
-              onChangeText={v => setInput(v)}
-              placeholder='Message'
-              placeholderTextColor={theme.placeholderTextColor}
-              value={input}
-            />
-            <TouchableHighlight
-              underlayColor={'transparent'}
-              activeOpacity={0.65}
-              onPress={chat}
-            >
-              <View
-                style={styles.chatButton}
-              >
-                <Ionicons
-                  name="arrow-up-outline"
-                  size={20} color={theme.tintTextColor}
-                />
-              </View>
-            </TouchableHighlight>
+        {messages.length === 0 && (
+          <View style={styles.empty}>
+            <Text style={[styles.emptyText, { color: colors.textColor }]}>
+              与 {selectedModel.name} 开始对话
+            </Text>
           </View>
-        )
-      }
-    </KeyboardAvoidingView>
+        )}
+        {messages.map((msg, idx) => renderMessage(msg, idx))}
+        {loading && streamingContent === '' && (
+          <ActivityIndicator style={styles.loading} color={colors.tintColor} />
+        )}
+      </ScrollView>
+
+      {/* 选中的图片预览 */}
+      {selectedImages.length > 0 && (
+        <View style={styles.selectedImagesContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            {selectedImages.map((img, idx) => (
+              <View key={idx} style={styles.selectedImageWrapper}>
+                <Image source={{ uri: img.uri }} style={styles.selectedImage} />
+                <TouchableOpacity
+                  style={styles.removeImageBtn}
+                  onPress={() => removeImage(idx)}
+                >
+                  <Ionicons name="close-circle" size={20} color="red" />
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Input */}
+      <View style={[styles.inputContainer, { borderTopColor: colors.borderColor }]}>
+        <TouchableOpacity onPress={pickImage} style={styles.imageBtn}>
+          <Ionicons name="image-outline" size={24} color={colors.textColor} />
+        </TouchableOpacity>
+        <TextInput
+          style={[styles.input, { color: colors.textColor, borderColor: colors.borderColor, backgroundColor: colors.backgroundColor }]}
+          placeholder="输入消息..."
+          placeholderTextColor={colors.placeholderTextColor}
+          value={input}
+          onChangeText={setInput}
+          onSubmitEditing={sendMessage}
+          returnKeyType="send"
+        />
+        <TouchableOpacity
+          style={[styles.sendBtn, { backgroundColor: colors.tintColor }]}
+          onPress={sendMessage}
+        >
+          <Ionicons name="send" size={20} color={colors.tintTextColor} />
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
   )
 }
 
-const getStyles = (theme: any) => StyleSheet.create({
-  optionsIconWrapper: {
-    padding: 10,
-    paddingTop: 9,
-    alignItems: 'flex-end'
-  },
-  scrollContentContainer: {
-    flex: 1,
-  },
-  chatDescription: {
-    color: theme.textColor,
-    textAlign: 'center',
-    marginTop: 15,
-    fontSize: 13,
-    paddingHorizontal: 34,
-    opacity: .8,
-    fontFamily: theme.regularFont
-  },
-  midInput: {
-    marginBottom: 8,
-    borderWidth: 1,
-    paddingHorizontal: 25,
-    marginHorizontal: 10,
-    paddingVertical: 15,
-    borderRadius: 99,
-    color: theme.textColor,
-    borderColor: theme.borderColor,
-    fontFamily: theme.mediumFont,
-  },
-  midButtonStyle: {
-    flexDirection: 'row',
-    marginHorizontal: 14,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    borderRadius: 99,
-    backgroundColor: theme.tintColor,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  midButtonText: {
-    color: theme.tintTextColor,
-    marginLeft: 10,
-    fontFamily: theme.boldFont,
-    fontSize: 16
-  },
-  midChatInputWrapper: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  midChatInputContainer: {
-    width: '100%',
-    paddingTop: 5,
-    paddingBottom: 5
-  },
-  loadingContainer: {
-    marginTop: 25
-  },
-  promptResponse: {
-    marginTop: 10,
-  },
-  textStyleContainer: {
-    borderWidth: 1,
-    marginRight: 25,
-    borderColor: theme.borderColor,
-    padding: 15,
-    paddingBottom: 6,
-    paddingTop: 5,
-    margin: 10,
-    borderRadius: 13
-  },
-  promptTextContainer: {
-    flex: 1,
-    alignItems: 'flex-end',
-    marginRight: 15,
-    marginLeft: 24,
-  },
-  promptTextWrapper: {
-    borderRadius: 8,
-    borderTopRightRadius: 0,
-    backgroundColor: theme.tintColor,
-  },
-  promptText: {
-    color: theme.tintTextColor,
-    fontFamily: theme.regularFont,
-    paddingVertical: 5,
-    paddingHorizontal: 9,
-    fontSize: 16
-  },
-  chatButton: {
-    marginRight: 14,
-    padding: 5,
-    borderRadius: 99,
-    backgroundColor: theme.tintColor
-  },
-  chatInputContainer: {
-    paddingTop: 5,
-    borderColor: theme.borderColor,
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingBottom: 5
-  },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 99,
-    color: theme.textColor,
-    marginHorizontal: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 21,
-    paddingRight: 39,
-    borderColor: theme.borderColor,
-    fontFamily: theme.semiBoldFont,
-  },
-  container: {
-    backgroundColor: theme.backgroundColor,
-    flex: 1
-  },
-  markdownStyle: {
-    body: {
-      color: theme.textColor,
-      fontFamily: theme.regularFont
-    },
-    paragraph: {
-      color: theme.textColor,
-      fontSize: 16,
-      fontFamily: theme.regularFont
-    },
-    heading1: {
-      color: theme.textColor,
-      fontFamily: theme.semiBoldFont,
-      marginVertical: 5
-    },
-    heading2: {
-      marginTop: 20,
-      color: theme.textColor,
-      fontFamily: theme.semiBoldFont,
-      marginBottom: 5
-    },
-    heading3: {
-      marginTop: 20,
-      color: theme.textColor,
-      fontFamily: theme.mediumFont,
-      marginBottom: 5
-    },
-    heading4: {
-      marginTop: 10,
-      color: theme.textColor,
-      fontFamily: theme.mediumFont,
-      marginBottom: 5
-    },
-    heading5: {
-      marginTop: 10,
-      color: theme.textColor,
-      fontFamily: theme.mediumFont,
-      marginBottom: 5
-    },
-    heading6: {
-      color: theme.textColor,
-      fontFamily: theme.mediumFont,
-      marginVertical: 5
-    },
-    list_item: {
-      marginTop: 7,
-      color: theme.textColor,
-      fontFamily: theme.regularFont,
-      fontSize: 16,
-    },
-    ordered_list_icon: {
-      color: theme.textColor,
-      fontSize: 16,
-      fontFamily: theme.regularFont
-    },
-    bullet_list: {
-      marginTop: 10
-    },
-    ordered_list: {
-      marginTop: 7
-    },
-    bullet_list_icon: {
-      color: theme.textColor,
-      fontSize: 16,
-      fontFamily: theme.regularFont
-    },
-    code_inline: {
-      color: theme.secondaryTextColor,
-      backgroundColor: theme.secondaryBackgroundColor,
-      borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, .1)',
-      fontFamily: theme.lightFont
-    },
-    hr: {
-      backgroundColor: 'rgba(255, 255, 255, .1)',
-      height: 1,
-    },
-    fence: {
-      marginVertical: 5,
-      padding: 10,
-      color: theme.secondaryTextColor,
-      backgroundColor: theme.secondaryBackgroundColor,
-      borderColor: 'rgba(255, 255, 255, .1)',
-      fontFamily: theme.regularFont
-    },
-    tr: {
-      borderBottomWidth: 1,
-      borderColor: 'rgba(255, 255, 255, .2)',
-      flexDirection: 'row',
-    },
-    table: {
-      marginTop: 7,
-      borderWidth: 1,
-      borderColor: 'rgba(255, 255, 255, .2)',
-      borderRadius: 3,
-    },
-    blockquote: {
-      backgroundColor: '#312e2e',
-      borderColor: '#CCC',
-      borderLeftWidth: 4,
-      marginLeft: 5,
-      paddingHorizontal: 5,
-      marginVertical: 5,
-    },
-  } as any,
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  header: { paddingTop: 50, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#DDDDDD' },
+  modelBtn: { flexDirection: 'row', alignItems: 'center' },
+  dot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
+  modelName: { fontSize: 18, fontWeight: '600', marginRight: 4 },
+  messages: { flex: 1, padding: 10 },
+  messagesContent: { flexGrow: 1 },
+  empty: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  emptyText: { fontSize: 16 },
+  messageRow: { marginVertical: 5, paddingHorizontal: 10 },
+  userRow: { alignItems: 'flex-end' },
+  assistantRow: { alignItems: 'flex-start' },
+  bubble: { maxWidth: '80%', padding: 12, borderRadius: 16 },
+  bubbleText: { fontSize: 16 },
+  imageGrid: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 },
+  messageImage: { width: 100, height: 100, borderRadius: 8, marginRight: 4, marginBottom: 4 },
+  thinkingContainer: { marginBottom: 8, padding: 8, backgroundColor: '#F0F0F0', borderRadius: 8 },
+  thinkingLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4 },
+  thinkingText: { fontSize: 13, fontStyle: 'italic' },
+  cursor: { color: '#4A90E2' },
+  loading: { marginTop: 10 },
+  selectedImagesContainer: { paddingHorizontal: 10, paddingVertical: 5, borderTopWidth: 1, borderTopColor: '#DDDDDD' },
+  selectedImageWrapper: { marginRight: 8, position: 'relative' },
+  selectedImage: { width: 60, height: 60, borderRadius: 8 },
+  removeImageBtn: { position: 'absolute', top: -8, right: -8 },
+  imageBtn: { marginRight: 8, padding: 4 },
+  inputContainer: { flexDirection: 'row', padding: 10, borderTopWidth: 1, alignItems: 'center' },
+  input: { flex: 1, paddingHorizontal: 15, paddingVertical: 10, borderRadius: 20, fontSize: 16, borderWidth: 1 },
+  sendBtn: { marginLeft: 10, padding: 12, borderRadius: 25 }
 })

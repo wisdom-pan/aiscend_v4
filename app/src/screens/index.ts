@@ -1,6 +1,7 @@
 export { FacialDesign } from './facialDesign'
 export { ContentGenerator } from './contentGenerator'
 export { VideoCreator } from './videoCreator'
+export { Chat } from './chat'
 export { SmartQA } from './smartQA'
 export { History } from './history'
 export { Settings } from './settings'
