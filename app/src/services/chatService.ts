@@ -1,9 +1,13 @@
 // Chat session management service
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { ChatSession, Message } from '../types/chat'
-import { v4 as uuid } from 'uuid'
 
 const STORAGE_KEY = 'chat_sessions'
+
+// 简单的 ID 生成函数，替代 uuid
+function generateId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).substr(2)
+}
 
 export const chatService = {
   async getSessions(): Promise<ChatSession[]> {
@@ -27,7 +31,7 @@ export const chatService = {
   async createSession(modelId: string, modelName: string): Promise<ChatSession> {
     const sessions = await this.getSessions()
     const newSession: ChatSession = {
-      id: uuid(),
+      id: generateId(),
       modelId,
       modelName,
       title: 'New Chat',

@@ -1,4 +1,4 @@
-import { useState, useContext, useEffect, useRef } from 'react'
+import { useState, useContext, useEffect, useRef, useCallback } from 'react'
 import {
   View,
   Text,
@@ -19,6 +19,7 @@ import { useActionSheet } from '@expo/react-native-action-sheet'
 import * as ImagePicker from 'expo-image-picker'
 import Markdown from '@ronradtke/react-native-markdown-display'
 import { chatService } from '../services/chatService'
+import { historyService } from '../services/historyService'
 import { Message } from '../types/chat'
 
 interface ImageItem {
@@ -44,8 +45,10 @@ export function Chat() {
   const [selectedModel, setSelectedModel] = useState(MODELS[0])
   const [streamingContent, setStreamingContent] = useState('')
   const [selectedImages, setSelectedImages] = useState<ImageItem[]>([])
+  const [isLoaded, setIsLoaded] = useState(false)  // 添加加载状态标记
   const streamingContentRef = useRef('')
   const scrollViewRef = useRef<ScrollView>(null)
+  const isSavingRef = useRef(false)  // 防止重复保存
 
   const colors = theme || {
     backgroundColor: '#F8F9FA',
@@ -56,22 +59,131 @@ export function Chat() {
     placeholderTextColor: '#999999'
   }
 
-  useEffect(() => {
-    loadSession()
-  }, [])
-
-  async function loadSession() {
+  // 加载会话 - 使用 useCallback
+  const loadSession = useCallback(async () => {
     try {
+      console.log('Chat: Loading session from storage...')
       const sessions = await chatService.getSessions()
+      console.log('Chat: Found sessions:', sessions.length)
       if (sessions.length > 0) {
+        console.log('Chat: Loading messages, count:', sessions[0].messages.length)
         setMessages(sessions[0].messages)
         const model = MODELS.find(m => m.id === sessions[0].modelId)
-        if (model) setSelectedModel(model)
+        if (model) {
+          setSelectedModel(model)
+          console.log('Chat: Loaded model:', model.name)
+        }
+      }
+      setIsLoaded(true)
+    } catch (e) {
+      console.log('Chat: Load error', e)
+      setIsLoaded(true)
+    }
+  }, [])
+
+  // 组件挂载时加载会话
+  useEffect(() => {
+    console.log('Chat: useEffect running, loading session...')
+    loadSession()
+  }, [loadSession])
+
+  // 保存会话 - 使用 useCallback
+  const saveCurrentSession = useCallback(async (msgs: Message[]) => {
+    if (isSavingRef.current) {
+      console.log('Chat: Already saving, skip...')
+      return
+    }
+    isSavingRef.current = true
+
+    try {
+      console.log('Chat: Saving session, messages count:', msgs.length)
+      let sessions = await chatService.getSessions()
+      if (sessions.length === 0) {
+        await chatService.createSession(selectedModel.id, selectedModel.name)
+        sessions = await chatService.getSessions()
+      }
+
+      if (sessions.length > 0) {
+        const session = sessions[0]
+        session.messages = msgs
+        session.modelId = selectedModel.id
+        session.modelName = selectedModel.name
+        await chatService.updateSession(session)
+        console.log('Chat: Session saved successfully')
+
+        // 同时保存到历史记录
+        const lastUserMsg = msgs.filter(m => m.role === 'user').pop()
+        const lastAssistantMsg = msgs.filter(m => m.role === 'assistant').pop()
+
+        if (lastUserMsg && lastAssistantMsg) {
+          try {
+            await historyService.saveRecord({
+              type: 'qa',
+              title: lastUserMsg.content.substring(0, 50) || '智能问答',
+              prompt: lastUserMsg.content,
+              result: lastAssistantMsg.content,
+              metadata: {
+                model_provider: 'yunwu',
+                model_name: selectedModel.id
+              }
+            })
+            console.log('Chat: History record saved')
+          } catch (e) {
+            console.log('Chat: Save history error:', e)
+          }
+        }
       }
     } catch (e) {
-      console.log('load error', e)
+      console.log('Chat: Save session error:', e)
+    } finally {
+      isSavingRef.current = false
     }
-  }
+  }, [selectedModel.id, selectedModel.name])
+
+  // 监听消息变化自动保存 - 只在加载完成后执行
+  useEffect(() => {
+    if (isLoaded && messages.length > 0) {
+      console.log('Chat: Messages changed, scheduling save...')
+      // 使用 setTimeout 确保在渲染完成后保存
+      const timer = setTimeout(() => {
+        saveCurrentSession(messages)
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [messages, isLoaded, saveCurrentSession])
+
+  // 使用 ref 保存最新的 messages 和 selectedModel
+  const messagesRef = useRef(messages)
+  const selectedModelRef = useRef(selectedModel)
+
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
+  useEffect(() => {
+    selectedModelRef.current = selectedModel
+  }, [selectedModel])
+
+  // 组件卸载前保存
+  useEffect(() => {
+    return () => {
+      console.log('Chat: Component unmounting, saving...')
+      const currentMessages = messagesRef.current
+      const currentModel = selectedModelRef.current
+      // 同步保存当前消息
+      if (currentMessages.length > 0) {
+        chatService.getSessions().then(sessions => {
+          if (sessions.length > 0) {
+            sessions[0].messages = currentMessages
+            sessions[0].modelId = currentModel.id
+            sessions[0].modelName = currentModel.name
+            chatService.updateSession(sessions[0])
+            console.log('Chat: Saved on unmount')
+          }
+        })
+      }
+    }
+  }, [])
 
   async function pickImage() {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -126,6 +238,9 @@ export function Chat() {
 
     setMessages([...newMessages, tempAssistantMessage])
 
+    // 保存用户消息 - 使用当前的 newMessages
+    await saveCurrentSession(newMessages)
+
     try {
       await callAPIStream(input, selectedImages, (chunk) => {
         if (chunk) {
@@ -150,6 +265,14 @@ export function Chat() {
     } finally {
       setLoading(false)
       setStreamingContent('')
+      // 保存AI回复 - 获取最新的消息
+      const finalMessages = [...newMessages, {
+        id: assistantId,
+        role: 'assistant',
+        content: streamingContentRef.current,
+        timestamp: Date.now()
+      }]
+      await saveCurrentSession(finalMessages)
     }
   }
 
