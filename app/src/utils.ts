@@ -28,7 +28,7 @@ export async function fetchStream({
   // 构建请求头
   const requestHeaders: any = {
     'Accept': body.stream ? 'text/event-stream' : 'application/json',
-    'Authorization': `Bearer ${apiKey || 'sk-ORS9JAXURvGyG3PqAZ3GzsKv8KQ1wJaDjhNM1NOY6eMMx5uM'}`,
+    'Authorization': `Bearer ${apiKey || 'sk-7bW8PnA4sv9mt7ipJsNzkDDtYSOYlb60kusyzJmqaTo52zld'}`,
     'Content-Type': 'application/json',
     ...headers
   }

@@ -264,13 +264,13 @@ export function FacialDesign() {
       await fetchStream({
         body: {
           messages,
-          model: 'gemini-3-flash-preview',
+          model: 'gemini-3.1-pro-preview',
           temperature: 0.5,
           top_p: 1,
           stream: true
         },
         type: 'openai',
-        apiKey: openaiApiKey,
+        apiKey: API_KEYS.GEMINI,
         abortController: controller,
         onMessage: (data) => {
           console.log('📨 [恢复任务] 收到数据:', JSON.stringify(data, null, 2))
@@ -498,7 +498,7 @@ export function FacialDesign() {
         timestamp: Date.now()
       })
 
-      // 使用gemini-3-flash-preview进行面部分析（支持图片输入和流式输出）
+      // 使用gemini-3.1-pro-preview进行面部分析（支持图片输入和流式输出）
       const messages = [
         {
           role: 'user' as const,
@@ -523,13 +523,13 @@ export function FacialDesign() {
       await fetchStream({
         body: {
           messages,
-          model: 'gemini-3-flash-preview',
+          model: 'gemini-3.1-pro-preview',
           temperature: 0.5,
           top_p: 1,
           stream: true
         },
         type: 'openai',
-        apiKey: openaiApiKey,
+        apiKey: API_KEYS.GEMINI,
         abortController: controller,
         onMessage: (data) => {
           console.log('📨 收到数据:', JSON.stringify(data, null, 2))
@@ -710,7 +710,7 @@ export function FacialDesign() {
       const eventSourceArgs = {
         body: {
           messages: conversationHistory,
-          model: 'gemini-3-flash-preview',
+          model: 'gemini-3.1-pro-preview',
           stream: true
         },
         type: 'openai',

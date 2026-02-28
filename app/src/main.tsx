@@ -1,6 +1,6 @@
 import { useContext, useState } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView } from 'react-native';
-import { FacialDesign, ContentGenerator, VideoCreator, SmartQA, History } from './screens'
+import { FacialDesign, ContentGenerator, VideoCreator, Chat, History } from './screens'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import { ThemeContext } from './context'
 
@@ -21,17 +21,17 @@ const TAB_ITEMS: TabItem[] = [
 function MainComponent() {
   const { theme } = useContext(ThemeContext)
   const styles = getStyles(theme)
-  const [currentScreen, setCurrentScreen] = useState('面部美学')
+  const [currentScreen, setCurrentScreen] = useState('智能问答')
 
   const screens = {
     '面部美学': FacialDesign,
     '文案生成': ContentGenerator,
     '内容创作': VideoCreator,
-    '智能问答': SmartQA,
+    '智能问答': Chat,
     '历史记录': History,
   }
 
-  const CurrentScreen = screens[currentScreen as keyof typeof screens] || FacialDesign
+  const CurrentScreen = screens[currentScreen as keyof typeof screens] || Chat
 
   return (
     <SafeAreaView style={[styles.container, { paddingTop: 0 }]}>
