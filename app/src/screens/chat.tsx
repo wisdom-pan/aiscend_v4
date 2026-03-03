@@ -13,6 +13,7 @@ import {
   Image,
   Modal
 } from 'react-native'
+import * as Clipboard from 'expo-clipboard'
 import { ThemeContext } from '../context'
 import { Ionicons } from '@expo/vector-icons'
 import { useActionSheet } from '@expo/react-native-action-sheet'
@@ -397,9 +398,59 @@ export function Chat() {
     })
   }
 
+  // 复制内容
+  const handleCopyContent = async (content: string) => {
+    try {
+      await Clipboard.setStringAsync(content)
+      Alert.alert('提示', '内容已复制到剪贴板')
+    } catch (error: any) {
+      Alert.alert('提示', '复制失败：' + error.message)
+    }
+  }
+
+  // 收藏内容
+  const handleFavorite = async (msg: Message) => {
+    const userMsg = messages.filter(m => m.role === 'user' && m.timestamp < msg.timestamp).pop()
+    if (!userMsg) return
+
+    try {
+      await historyService.saveRecord({
+        type: 'favorite',
+        title: userMsg.content.substring(0, 50) || '收藏',
+        prompt: userMsg.content,
+        result: msg.content,
+        metadata: {
+          model_provider: 'yunwu',
+          model_name: selectedModel.id
+        }
+      })
+      Alert.alert('提示', '已添加到收藏')
+    } catch (error: any) {
+      Alert.alert('提示', '收藏失败：' + error.message)
+    }
+  }
+
+  // 重试功能
+  const handleRetry = async () => {
+    // 找到最后一条用户消息
+    const lastUserMsg = messages.filter(m => m.role === 'user').pop()
+    if (!lastUserMsg) return
+
+    // 删除最后一条assistant消息
+    const newMessages = messages.filter(m => m.role === 'user')
+    setMessages(newMessages)
+
+    // 重新发送
+    setInput(lastUserMsg.content)
+    if (lastUserMsg.images && lastUserMsg.images.length > 0) {
+      setSelectedImages(lastUserMsg.images)
+    }
+  }
+
   const renderMessage = (msg: Message, index: number) => {
     const isUser = msg.role === 'user'
     const isLastAssistant = index === messages.length - 1 && !isUser && loading
+    const isComplete = !isLastAssistant && !isUser && msg.content.length > 0
 
     const displayContent = isLastAssistant && streamingContent ? streamingContent : msg.content
 
@@ -424,7 +475,7 @@ export function Chat() {
           )}
           {/* AI回复使用Markdown渲染，支持选择文本 */}
           {!isUser && displayContent ? (
-            <Markdown style={markdownStyles}>
+            <Markdown style={markdownStyles} selectable>
               {displayContent}
             </Markdown>
           ) : (
@@ -434,6 +485,33 @@ export function Chat() {
           )}
           {isLastAssistant && loading && <Text style={styles.cursor}>▊</Text>}
         </View>
+
+        {/* AI回复的操作按钮 */}
+        {!isUser && isComplete && (
+          <View style={styles.messageActions}>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => handleCopyContent(msg.content)}
+            >
+              <Ionicons name="copy-outline" size={18} color="#666" />
+              <Text style={styles.actionBtnText}>复制</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={() => handleFavorite(msg)}
+            >
+              <Ionicons name="bookmark-outline" size={18} color="#666" />
+              <Text style={styles.actionBtnText}>收藏</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionBtn}
+              onPress={handleRetry}
+            >
+              <Ionicons name="refresh-outline" size={18} color="#666" />
+              <Text style={styles.actionBtnText}>重试</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     )
   }
@@ -559,5 +637,9 @@ const styles = StyleSheet.create({
   imageBtn: { marginRight: 8, padding: 4 },
   inputContainer: { flexDirection: 'row', padding: 10, borderTopWidth: 1, alignItems: 'center' },
   input: { flex: 1, paddingHorizontal: 15, paddingVertical: 10, borderRadius: 20, fontSize: 16, borderWidth: 1 },
-  sendBtn: { marginLeft: 10, padding: 12, borderRadius: 25 }
+  sendBtn: { marginLeft: 10, padding: 12, borderRadius: 25 },
+  // 操作按钮样式
+  messageActions: { flexDirection: 'row', marginTop: 8, gap: 12 },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: 12 },
+  actionBtnText: { fontSize: 12, color: '#666' }
 })
