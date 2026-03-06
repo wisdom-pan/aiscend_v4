@@ -45,11 +45,12 @@ export function Chat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [selectedModel, setSelectedModel] = useState(MODELS[0])
   const [streamingContent, setStreamingContent] = useState('')
+  const [streamingId, setStreamingId] = useState<string | null>(null)
   const [selectedImages, setSelectedImages] = useState<ImageItem[]>([])
-  const [isLoaded, setIsLoaded] = useState(false)  // 添加加载状态标记
+  const [isLoaded, setIsLoaded] = useState(false)
   const streamingContentRef = useRef('')
   const scrollViewRef = useRef<ScrollView>(null)
-  const isSavingRef = useRef(false)  // 防止重复保存
+  const isSavingRef = useRef(false)
 
   const colors = theme || {
     backgroundColor: '#F8F9FA',
@@ -198,7 +199,7 @@ export function Chat() {
       const asset = result.assets[0]
       const newImage: ImageItem = {
         uri: asset.uri,
-        base64: asset.base64
+        base64: asset.base64 ?? undefined
       }
       setSelectedImages([...selectedImages, newImage])
     }
@@ -229,51 +230,48 @@ export function Chat() {
     setStreamingContent('')
     streamingContentRef.current = ''
 
-    const assistantId = String(Date.now()) + 'a'
-    const tempAssistantMessage: Message = {
-      id: assistantId,
-      role: 'assistant',
-      content: '',
-      timestamp: Date.now()
-    }
+    const assistantMsgId = String(Date.now()) + 'a'
+    setStreamingId(assistantMsgId)
 
-    setMessages([...newMessages, tempAssistantMessage])
-
-    // 保存用户消息 - 使用当前的 newMessages
+    // 保存用户消息
     await saveCurrentSession(newMessages)
 
     try {
       await callAPIStream(input, selectedImages, (chunk) => {
         if (chunk) {
           streamingContentRef.current += chunk
+          // 直接更新流式内容状态，不更新消息数组
           setStreamingContent(streamingContentRef.current)
         }
-
-        setMessages(prev => {
-          const updated = [...prev]
-          const lastIdx = updated.length - 1
-          if (lastIdx >= 0 && updated[lastIdx].id === assistantId) {
-            updated[lastIdx] = {
-              ...updated[lastIdx],
-              content: streamingContentRef.current
-            }
-          }
-          return updated
-        })
       })
+
+      // 流式结束后，添加最终消息
+      const finalContent = streamingContentRef.current
+      if (finalContent) {
+        const assistantMessage: Message = {
+          id: assistantMsgId,
+          role: 'assistant',
+          content: finalContent,
+          timestamp: Date.now()
+        }
+        const finalMessages = [...newMessages, assistantMessage]
+        setMessages(finalMessages)
+        await saveCurrentSession(finalMessages)
+      }
     } catch (error: any) {
       console.log('API error:', error)
+      // 错误时也添加错误消息
+      const errorMessage: Message = {
+        id: assistantMsgId,
+        role: 'assistant',
+        content: '抱歉，发生了错误，请重试。',
+        timestamp: Date.now()
+      }
+      setMessages([...newMessages, errorMessage])
     } finally {
       setLoading(false)
       setStreamingContent('')
-      // 保存AI回复 - 获取最新的消息
-      const finalMessages = [...newMessages, {
-        id: assistantId,
-        role: 'assistant',
-        content: streamingContentRef.current,
-        timestamp: Date.now()
-      }]
-      await saveCurrentSession(finalMessages)
+      setStreamingId(null)
     }
   }
 
@@ -302,19 +300,16 @@ export function Chat() {
     return data.choices?.[0]?.message?.content || '无响应'
   }
 
-  // 使用非流式API
+  // 使用真正的流式API (SSE)
   async function callAPIStream(prompt: string, images: ImageItem[], onChunk: (content: string) => void): Promise<void> {
     // 构建消息内容 - 支持多模态
     let userContent: any
 
     if (images && images.length > 0) {
-      // 多模态消息：文字 + 图片
       const contentParts: any[] = []
-
       if (prompt.trim()) {
         contentParts.push({ type: 'text', text: prompt })
       }
-
       for (const img of images) {
         if (img.base64) {
           contentParts.push({
@@ -323,7 +318,6 @@ export function Chat() {
           })
         }
       }
-
       userContent = contentParts
     } else {
       userContent = prompt
@@ -350,7 +344,7 @@ export function Chat() {
 
     apiMessages.push({ role: 'user', content: userContent })
 
-    console.log('Calling API with images:', images?.length || 0)
+    console.log('Calling streaming API with images:', images?.length || 0)
 
     const response = await fetch(API_BASE, {
       method: 'POST',
@@ -361,7 +355,7 @@ export function Chat() {
       body: JSON.stringify({
         model: selectedModel.id,
         messages: apiMessages,
-        stream: false
+        stream: true  // 启用真正的流式
       })
     })
 
@@ -371,24 +365,66 @@ export function Chat() {
       throw new Error(`API错误: ${response.status}`)
     }
 
-    const data = await response.json()
-    console.log('Response received')
+    // 处理 SSE 流
+    const reader = response.body?.getReader()
+    const decoder = new TextDecoder('utf-8')
 
-    const content = data.choices?.[0]?.message?.content || '无响应'
+    if (!reader) {
+      throw new Error('无法读取响应流')
+    }
 
-    // 模拟流式输出 - 加快速度
-    let i = 0
-    const chars = content.split('')
-    const interval = setInterval(() => {
-      if (i < chars.length) {
-        // 一次输出5个字符，加快速度
-        const chunk = chars.slice(i, i + 5).join('')
-        onChunk(chunk)
-        i += 5
-      } else {
-        clearInterval(interval)
+    let buffer = ''
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''  // 保留不完整的行
+
+      for (const line of lines) {
+        const trimmedLine = line.trim()
+        if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue
+
+        const data = trimmedLine.slice(6) // 去掉 'data: '
+
+        if (data === '[DONE]') {
+          console.log('Stream completed')
+          return
+        }
+
+        try {
+          const parsed = JSON.parse(data)
+          const delta = parsed.choices?.[0]?.delta?.content
+          if (delta) {
+            onChunk(delta)
+          }
+        } catch (e) {
+          // 忽略解析错误，继续处理下一行
+          console.log('Parse error for line:', trimmedLine)
+        }
       }
-    }, 15)
+    }
+
+    // 处理剩余的缓冲区
+    if (buffer.trim()) {
+      const trimmedLine = buffer.trim()
+      if (trimmedLine.startsWith('data: ')) {
+        const data = trimmedLine.slice(6)
+        if (data !== '[DONE]') {
+          try {
+            const parsed = JSON.parse(data)
+            const delta = parsed.choices?.[0]?.delta?.content
+            if (delta) {
+              onChunk(delta)
+            }
+          } catch (e) {
+            // 忽略
+          }
+        }
+      }
+    }
   }
 
   function switchModel() {
@@ -447,12 +483,11 @@ export function Chat() {
     }
   }
 
-  const renderMessage = (msg: Message, index: number) => {
+  const renderMessage = (msg: Message) => {
     const isUser = msg.role === 'user'
-    const isLastAssistant = index === messages.length - 1 && !isUser && loading
-    const isComplete = !isLastAssistant && !isUser && msg.content.length > 0
+    const isComplete = !isUser && msg.content.length > 0
 
-    const displayContent = isLastAssistant && streamingContent ? streamingContent : msg.content
+    const displayContent = msg.content
 
     // 获取消息中的图片
     const msgImages = msg.images || []
@@ -473,9 +508,9 @@ export function Chat() {
               ))}
             </View>
           )}
-          {/* AI回复使用Markdown渲染，支持选择文本 */}
+          {/* AI回复使用Markdown渲染 */}
           {!isUser && displayContent ? (
-            <Markdown style={markdownStyles} selectable>
+            <Markdown style={markdownStyles}>
               {displayContent}
             </Markdown>
           ) : (
@@ -483,7 +518,6 @@ export function Chat() {
               {displayContent}
             </Text>
           )}
-          {isLastAssistant && loading && <Text style={styles.cursor}>▊</Text>}
         </View>
 
         {/* AI回复的操作按钮 */}
@@ -551,14 +585,31 @@ export function Chat() {
         contentContainerStyle={styles.messagesContent}
         onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
       >
-        {messages.length === 0 && (
+        {messages.length === 0 && !loading && (
           <View style={styles.empty}>
             <Text style={[styles.emptyText, { color: colors.textColor }]}>
               与 {selectedModel.name} 开始对话
             </Text>
           </View>
         )}
-        {messages.map((msg, idx) => renderMessage(msg, idx))}
+        {messages.map((msg) => renderMessage(msg))}
+
+        {/* 流式输出中的助手消息 */}
+        {loading && streamingId && streamingContent.length > 0 && (
+          <View style={[styles.messageRow, styles.assistantRow]}>
+            <View style={[
+              styles.bubble,
+              { backgroundColor: colors.backgroundColor, borderColor: colors.borderColor, borderWidth: 1 }
+            ]}>
+              <Markdown style={markdownStyles}>
+                {streamingContent}
+              </Markdown>
+              <Text style={styles.cursor}>▊</Text>
+            </View>
+          </View>
+        )}
+
+        {/* 等待响应的加载指示器 */}
         {loading && streamingContent === '' && (
           <ActivityIndicator style={styles.loading} color={colors.tintColor} />
         )}

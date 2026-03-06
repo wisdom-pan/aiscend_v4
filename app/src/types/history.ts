@@ -1,7 +1,7 @@
 export interface HistoryRecord {
   id: string
   user_id: string
-  type: 'facial' | 'content' | 'video' | 'qa'
+  type: 'facial' | 'content' | 'video' | 'qa' | 'favorite'
   title: string
   image_path?: string
   image_metadata?: {

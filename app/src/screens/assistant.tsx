@@ -75,6 +75,11 @@ export function Assistant() {
 
   async function createThread() {
     if (!input) return
+    // 如果没有 instructions，清空之前的对话状态以确保使用通用助手角色
+    if (!instructions.trim()) {
+      setAssistantId('')
+      setThreadId('')
+    }
     generateAssistantResponse()
   }
 

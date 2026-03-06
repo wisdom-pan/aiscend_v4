@@ -29,8 +29,11 @@ export async function createAssistant(req: Request, res: Response) {
       'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
     }
 
+    // 如果没有提供 instructions，使用通用助手的默认 prompt
     if (instructions) {
       body.instructions = instructions
+    } else {
+      body.instructions = 'You are a helpful AI assistant. Answer questions to the best of your ability without assuming any specific domain or role unless explicitly instructed by the user.'
     }
 
     if (file) {
