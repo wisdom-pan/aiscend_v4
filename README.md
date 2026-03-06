@@ -221,25 +221,6 @@ API密钥获取：
 如需使用中转服务，请联系yunwu.ai获取API密钥。
 
 
-```bash
-adb logcat | grep -E "(API Configuration Debug|API Key|Request URL|Request headers|ReactNativeJS)"
 
-```
-
-
-```bash
-adb -s 192.168.1.2:43157 logcat | grep -E "(ReactNative|fetchStream|reasoning_content|content)"
-
-adb -s 192.168.1.2:43157 logcat -d | grep -E "(fetchStream|response.body|Stream mode)"
-
-```
-
-adb -s 192.168.1.2:43157 logcat -d | grep -E  "(fetchStream|response.body|Stream mode|cleanup|XHR)"
-
-
-adb -s 192.168.1.2:43157 logcat -d | grep   -E "(aisenda|fetchStream|Stream mode|cleanup)"
-adb -s 192.168.1.2:43157 logcat -d | grep -E "(ReactNativeJS|JS|error)"
-
-adb -s 10.17.11.35:37801 logcat -d | grep -E "(SmartQA|generateReplies|Streaming error|生成失败|Error)"
 
 adb -s 10.17.11.49:41081 logcat -d | grep -E "ReactNativeJS|Error"
