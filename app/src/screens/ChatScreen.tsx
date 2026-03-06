@@ -203,7 +203,7 @@ export function ChatScreen({ agent, conversation, onNewConversation, onUpdateCon
       await FileSystem.writeAsStringAsync(filePath, base64Data, { encoding: FileSystem.EncodingType.Base64 })
 
       // 保存到相册
-      await CameraRoll.saveAsset(filePath, { type: 'photo', album: 'NanoBanana' })
+      await CameraRoll.save(filePath, { type: 'photo', album: 'NanoBanana' })
 
       // 删除临时文件
       await FileSystem.deleteAsync(filePath, { idempotent: true })
