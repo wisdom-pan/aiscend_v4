@@ -15,7 +15,6 @@ export interface Agent {
 
 // 可用模型列表 - 与 constants 保持一致
 export const AVAILABLE_MODELS = [
-  { id: 'gemini-3.1-flash-preview', name: 'Gemini Flash', description: '快速响应' },
   { id: 'gemini-3.1-pro-preview', name: 'Gemini Pro', description: '更强推理' },
   { id: 'gemini-3.1-flash-image-preview', name: 'Gemini 图像', description: '支持生图' },
   { id: 'gpt-5.2', name: 'GPT-5.2', description: 'OpenAI 最新' },

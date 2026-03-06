@@ -22,7 +22,7 @@ export const DEFAULT_AGENTS: Agent[] = [
     systemPrompt: '你是一位专业的医美客服咨询顾问，擅长用不同风格回复客户问题。请根据用户的问题，提供专业、温暖、有同理心的回复。',
     type: 'general',
     isDefault: true,
-    supportedModels: ['gemini-3.1-flash-preview', 'gemini-3.1-pro-preview', 'gpt-5.2'],
+    supportedModels: ['gemini-3.1-pro-preview', 'gpt-5.2'],
   },
   {
     id: 'facial',
@@ -80,7 +80,7 @@ export const DEFAULT_AGENTS: Agent[] = [
     avatar: '📝',
     systemPrompt: '你是一位专业的医美文案创作专家，擅长撰写营销文案、社交媒体内容、产品介绍等。请根据用户的需求，创作专业、吸引人的文案内容。',
     type: 'content',
-    supportedModels: ['gemini-3.1-flash-preview', 'gemini-3.1-pro-preview', 'gpt-5.2'],
+    supportedModels: ['gemini-3.1-pro-preview', 'gpt-5.2'],
   },
   {
     id: 'video',
@@ -89,7 +89,7 @@ export const DEFAULT_AGENTS: Agent[] = [
     avatar: '🎬',
     systemPrompt: '你是一位专业的短视频创意策划专家，擅长撰写抖音、小红书等平台的短视频脚本。请根据用户的需求，提供创意脚本和拍摄建议。',
     type: 'video',
-    supportedModels: ['gemini-3.1-flash-preview', 'gemini-3.1-pro-preview', 'gpt-5.2'],
+    supportedModels: ['gemini-3.1-pro-preview', 'gpt-5.2'],
   },
   {
     id: 'nanobanana',

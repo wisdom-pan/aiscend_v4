@@ -161,7 +161,7 @@ export function ChatScreen({ agent, conversation, onNewConversation, onUpdateCon
   const [streaming, setStreaming] = useState('')
   const [image, setImage] = useState<string | null>(null)
   const [base64, setBase64] = useState<string | null>(null)
-  const [model, setModel] = useState(agent.supportedModels?.[0] || 'gemini-3.1-flash-preview')
+  const [model, setModel] = useState(agent.supportedModels?.[0] || 'gemini-3.1-pro-preview')
   const [showModels, setShowModels] = useState(false)
 
   // Nano Banana 图片生成状态
