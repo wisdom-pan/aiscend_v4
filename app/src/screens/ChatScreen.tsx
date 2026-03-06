@@ -15,6 +15,8 @@ import {
   Alert,
   StatusBar,
   Dimensions,
+  Modal,
+  TouchableWithoutFeedback,
 } from 'react-native'
 import { ThemeContext } from '../context'
 import { Agent, Conversation, Message, AVAILABLE_MODELS } from '../types/agent'
@@ -24,6 +26,7 @@ import Ionicons from '@expo/vector-icons/Ionicons'
 import * as ImagePicker from 'expo-image-picker'
 import * as Clipboard from 'expo-clipboard'
 import * as FileSystem from 'expo-file-system'
+import { CameraRoll } from '@react-native-camera-roll/camera-roll'
 import Markdown from '@ronradtke/react-native-markdown-display'
 
 const { width } = Dimensions.get('window')
@@ -170,6 +173,10 @@ export function ChatScreen({ agent, conversation, onNewConversation, onUpdateCon
   const [showImageSettings, setShowImageSettings] = useState(false)
   const [generatedImages, setGeneratedImages] = useState<{uri: string, prompt: string}[]>([])
 
+  // 图片预览状态
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [previewVisible, setPreviewVisible] = useState(false)
+
   const scrollRef = useRef<ScrollView>(null)
   const abortRef = useRef<(() => void) | null>(null)
 
@@ -187,6 +194,32 @@ export function ChatScreen({ agent, conversation, onNewConversation, onUpdateCon
   useEffect(() => () => abortRef.current?.(), [])
 
   const scrollToBottom = () => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 50)
+
+  // 保存图片到相册
+  const saveToGallery = async (base64Data: string) => {
+    try {
+      // 先保存到临时文件
+      const filePath = FileSystem.documentDirectory + `temp_image_${Date.now()}.png`
+      await FileSystem.writeAsStringAsync(filePath, base64Data, { encoding: FileSystem.EncodingType.Base64 })
+
+      // 保存到相册
+      await CameraRoll.saveAsset(filePath, { type: 'photo', album: 'NanoBanana' })
+
+      // 删除临时文件
+      await FileSystem.deleteAsync(filePath, { idempotent: true })
+
+      Alert.alert('保存成功', '图片已保存到相册')
+    } catch (error: any) {
+      console.error('Save to gallery error:', error)
+      Alert.alert('保存失败', error.message || '无法保存到相册')
+    }
+  }
+
+  // 打开图片预览
+  const openPreview = (base64Data: string) => {
+    setPreviewImage(`data:image/png;base64,${base64Data}`)
+    setPreviewVisible(true)
+  }
 
   // Nano Banana 图片生成
   const generateImage = async (prompt: string) => {
@@ -495,24 +528,23 @@ export function ChatScreen({ agent, conversation, onNewConversation, onUpdateCon
             )}
             <View style={[styles.msgBox, msg.role === 'user' && styles.userBox]}>
               {msg.images?.[0] && (
-                <View style={styles.imageContainer}>
+                <TouchableOpacity
+                  style={styles.imageContainer}
+                  onPress={() => openPreview(msg.images[0])}
+                  onLongPress={() => {
+                    Alert.alert(
+                      '保存图片',
+                      '确定要保存到相册吗？',
+                      [
+                        { text: '取消', style: 'cancel' },
+                        { text: '保存', onPress: () => saveToGallery(msg.images[0]) }
+                      ]
+                    )
+                  }}
+                  delayLongPress={500}
+                >
                   <Image source={{ uri: `data:image/png;base64,${msg.images[0]}` }} style={styles.generatedImage} resizeMode="contain" />
-                  <TouchableOpacity
-                    style={styles.saveBtn}
-                    onPress={async () => {
-                      try {
-                        const filePath = FileSystem.documentDirectory + `nano_banana_${Date.now()}.png`
-                        await FileSystem.writeAsStringAsync(filePath, msg.images[0], { encoding: FileSystem.EncodingType.Base64 })
-                        Alert.alert('保存成功', `图片已保存到: ${filePath}`)
-                      } catch (e) {
-                        Alert.alert('保存失败', '无法保存图片')
-                      }
-                    }}
-                  >
-                    <Ionicons name="download-outline" size={18} color="#fff" />
-                    <Text style={styles.saveBtnText}>保存图片</Text>
-                  </TouchableOpacity>
-                </View>
+                </TouchableOpacity>
               )}
               {msg.content ? msg.role === 'user' ? (
                 <Text style={styles.userText}>{msg.content}</Text>
@@ -588,6 +620,49 @@ export function ChatScreen({ agent, conversation, onNewConversation, onUpdateCon
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* 图片预览 Modal */}
+      <Modal
+        visible={previewVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewVisible(false)}
+      >
+        <View style={styles.previewModal}>
+          <TouchableWithoutFeedback onPress={() => setPreviewVisible(false)}>
+            <View style={styles.previewBackdrop} />
+          </TouchableWithoutFeedback>
+
+          {previewImage && (
+            <View style={styles.previewContent}>
+              <Image
+                source={{ uri: previewImage }}
+                style={styles.previewImage}
+                resizeMode="contain"
+              />
+              <View style={styles.previewActions}>
+                <TouchableOpacity
+                  style={styles.previewBtn}
+                  onPress={() => {
+                    const base64 = previewImage.split(',')[1]
+                    saveToGallery(base64)
+                  }}
+                >
+                  <Ionicons name="download-outline" size={24} color="#fff" />
+                  <Text style={styles.previewBtnText}>保存到相册</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.previewBtn}
+                  onPress={() => setPreviewVisible(false)}
+                >
+                  <Ionicons name="close-outline" size={24} color="#fff" />
+                  <Text style={styles.previewBtnText}>关闭</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   )
 }
@@ -672,8 +747,15 @@ const getStyles = (isDark: boolean) => StyleSheet.create({
   // 生成的图片容器
   imageContainer: { marginTop: 8 },
   generatedImage: { width: width - 80, height: width - 80, borderRadius: 12, backgroundColor: isDark ? '#2f2f2f' : '#f5f5f5' },
-  saveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 12, paddingVertical: 10, paddingHorizontal: 16, backgroundColor: '#10a37f', borderRadius: 20, alignSelf: 'flex-start' },
-  saveBtnText: { color: '#fff', fontSize: 14, fontWeight: '500', marginLeft: 6 },
+
+  // 图片预览 Modal
+  previewModal: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  previewBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.9)' },
+  previewContent: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
+  previewImage: { width: width, height: width },
+  previewActions: { position: 'absolute', bottom: 60, flexDirection: 'row', gap: 20 },
+  previewBtn: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 25, gap: 8 },
+  previewBtnText: { color: '#fff', fontSize: 16, fontWeight: '500' },
 
   copyBtn: { marginTop: 8, padding: 4 },
   stopBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginTop: 12, paddingVertical: 6, paddingHorizontal: 12, backgroundColor: isDark ? '#424242' : '#e0e0e0', borderRadius: 16 },
