@@ -26,7 +26,13 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.wisdompan.app",
-      "minSdkVersion": 23
+      "minSdkVersion": 23,
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
