@@ -1,5 +1,8 @@
 import { SetStateAction, Dispatch } from 'react'
 
+// Agent types - re-export from agent.ts
+export * from './src/types/agent'
+
 export interface IIconProps {
   type: string
   props: any

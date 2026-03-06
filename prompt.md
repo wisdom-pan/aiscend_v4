@@ -204,7 +204,7 @@ request(options, function (error, response) {
 var request = require('request');
 var options = {
    'method': 'POST',
-   'url': 'https://yunwu.ai/v1beta/models/gemini-3-pro-image-preview:generateContent?key=',
+   'url': 'https://yunwu.ai/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=',
    'headers': {
       'Authorization': 'Bearer ${GEMINI_API_KEY}',
       'Content-Type': 'application/json'
@@ -372,7 +372,7 @@ adb -s 192.168.1.3:33655 logcat -d | grep -E "(25713|Running "main|ApiService in
 
 curl --location --request POST 'https://yunwu.ai/v1/chat/completions' \
 --header 'Accept: application/json' \
---header 'Authorization: Bearer sk-ORS9JAXURvGyG3PqAZ3GzsKv8KQ1wJaDjhNM1NOY6eMMx5uM' \
+--header 'Authorization: Bearer sk-5dsmWDBRPKaSnSC3HYBp9shak39KFgZjgjdXM7BiDEmxbaif' \
 --header 'Content-Type: application/json' \
 --data-raw '{
   "model": "gemini-3-flash-preview",
@@ -400,7 +400,7 @@ curl --location --request POST 'https://yunwu.ai/v1/chat/completions' \
 
 curl --location --request POST 'https://yunwu.ai/v1/chat/completions' \
 --header 'Accept: application/json' \
---header 'Authorization: Bearer sk-ORS9JAXURvGyG3PqAZ3GzsKv8KQ1wJaDjhNM1NOY6eMMx5uM' \
+--header 'Authorization: Bearer sk-7bW8PnA4sv9mt7ipJsNzkDDtYSOYlb60kusyzJmqaTo52zld' \
 --header 'Content-Type: application/json' \
 --data-raw '{
   "max_tokens": 4096,
@@ -503,3 +503,51 @@ fetch("https://yunwu.ai/v1beta/models/gemini-3-flash-preview:generateContent?key
    .then(response => response.text())
    .then(result => console.log(result))
    .catch(error => console.log('error', error));
+
+
+
+curl --location --request POST 'https://yunwu.ai/v1/chat/completions' \
+--header 'Accept: application/json' \
+--header 'Authorization: Bearer sk-7bW8PnA4sv9mt7ipJsNzkDDtYSOYlb60kusyzJmqaTo52zld' \
+--header 'Content-Type: application/json' \
+--data-raw '{
+  "model": "gpt-5.2",
+  "max_tokens": 8000,
+  "messages": [
+    {
+      "role": "system",
+      "content": "openai是谁创立的"
+    },
+    {
+      "role": "user",
+      "content": "你好"
+    }
+  ],
+  "temperature": 1.0,
+  "stream": true,
+  "stream_options": {
+    "include_usage": true
+  }
+}'
+
+curl --location -g --request POST 'https://yunwu.ai/v1beta/models/gemini-3.1-flash-image-preview:generateContent?key=' \
+--header 'Authorization: Bearer sk-5dsmWDBRPKaSnSC3HYBp9shak39KFgZjgjdXM7BiDEmxbaif' \
+--header 'Content-Type: application/json' \
+--data-raw '{
+  "contents": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "text": "Hi, can you create a 3d rendered image of a pig with wings and a top hat flying over a happy futuristic scifi city with lots of greenery?"
+        }
+      ]
+    }
+  ],
+  "generationConfig": {
+    "responseModalities": [
+      "TEXT",
+      "IMAGE"
+    ]
+  }
+}'
