@@ -9,6 +9,8 @@ import {
   Modal,
   Alert,
   Image,
+  TouchableWithoutFeedback,
+  Dimensions
 } from 'react-native'
 import { useState, useEffect, useContext } from 'react'
 import { useNavigation } from '@react-navigation/native'
@@ -18,6 +20,10 @@ import { HistoryRecord, UsageStats } from '../types/history'
 import Ionicons from '@expo/vector-icons/Ionicons'
 import Markdown from '@ronradtke/react-native-markdown-display'
 import * as Clipboard from 'expo-clipboard'
+import * as FileSystem from 'expo-file-system'
+import { CameraRoll } from '@react-native-camera-roll/camera-roll'
+
+const { width } = Dimensions.get('window')
 
 export function History() {
   const navigation = useNavigation()
@@ -33,6 +39,10 @@ export function History() {
   const [isFollowingUp, setIsFollowingUp] = useState(false)
   const { theme } = useContext(ThemeContext)
   const styles = getStyles(theme)
+
+  // 图片预览状态
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [previewVisible, setPreviewVisible] = useState(false)
 
   // 继续对话，跳转到对应页面
   const handleContinueConversation = () => {
@@ -261,6 +271,37 @@ export function History() {
     }
   }
 
+  // 打开图片预览
+  const openPreview = (imageUrl: string) => {
+    setPreviewImage(imageUrl)
+    setPreviewVisible(true)
+  }
+
+  // 保存图片到相册
+  const saveToGallery = async (imageUrl: string) => {
+    try {
+      // 下载图片到本地
+      const downloadResumable = FileSystem.createDownloadResumable(
+        imageUrl,
+        FileSystem.documentDirectory + `temp_image_${Date.now()}.png`
+      )
+      const downloadResult = await downloadResumable.downloadAsync()
+
+      if (downloadResult && downloadResult.uri) {
+        // 保存到相册
+        await CameraRoll.save(downloadResult.uri, { type: 'photo', album: 'Aiscend' })
+
+        // 删除临时文件
+        await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true })
+
+        Alert.alert('保存成功', '图片已保存到相册')
+      }
+    } catch (error: any) {
+      console.error('Save to gallery error:', error)
+      Alert.alert('保存失败', error.message || '无法保存到相册')
+    }
+  }
+
   const renderRecordItem = ({ item }: { item: HistoryRecord }) => (
     <TouchableOpacity style={styles.recordCard} onPress={() => handleRecordPress(item)}>
       <View style={styles.recordHeader}>
@@ -286,7 +327,22 @@ export function History() {
 
       {/* 图片显示 */}
       {item.image_path && (
-        <Image source={{ uri: item.image_path }} style={styles.recordImage} />
+        <TouchableOpacity
+          onPress={() => openPreview(item.image_path!)}
+          onLongPress={() => {
+            Alert.alert(
+              '保存图片',
+              '确定要保存到相册吗？',
+              [
+                { text: '取消', style: 'cancel' },
+                { text: '保存', onPress: () => saveToGallery(item.image_path!) }
+              ]
+            )
+          }}
+          delayLongPress={500}
+        >
+          <Image source={{ uri: item.image_path }} style={styles.recordImage} />
+        </TouchableOpacity>
       )}
 
       <Text style={styles.recordTitle} numberOfLines={1}>
@@ -470,6 +526,46 @@ export function History() {
               </View>
             </View>
           </ScrollView>
+        </View>
+      </Modal>
+
+      {/* 图片预览 Modal */}
+      <Modal
+        visible={previewVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewVisible(false)}
+      >
+        <View style={styles.previewModal}>
+          <TouchableWithoutFeedback onPress={() => setPreviewVisible(false)}>
+            <View style={styles.previewBackdrop} />
+          </TouchableWithoutFeedback>
+
+          {previewImage && (
+            <View style={styles.previewContent}>
+              <Image
+                source={{ uri: previewImage }}
+                style={styles.previewImage}
+                resizeMode="contain"
+              />
+              <View style={styles.previewActions}>
+                <TouchableOpacity
+                  style={styles.previewBtn}
+                  onPress={() => saveToGallery(previewImage)}
+                >
+                  <Ionicons name="download-outline" size={24} color="#fff" />
+                  <Text style={styles.previewBtnText}>保存到相册</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.previewBtn}
+                  onPress={() => setPreviewVisible(false)}
+                >
+                  <Ionicons name="close-outline" size={24} color="#fff" />
+                  <Text style={styles.previewBtnText}>关闭</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
       </Modal>
     </View>
@@ -822,6 +918,46 @@ const getStyles = (theme: any) => StyleSheet.create({
   },
   sendFollowUpBtnDisabled: {
     opacity: 0.5,
+  },
+  // 图片预览 Modal 样式
+  previewModal: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  previewBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.9)'
+  },
+  previewContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  previewImage: {
+    width: width,
+    height: width
+  },
+  previewActions: {
+    position: 'absolute',
+    bottom: 60,
+    flexDirection: 'row',
+    gap: 20
+  },
+  previewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 25,
+    gap: 8
+  },
+  previewBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500'
   },
 })
 
