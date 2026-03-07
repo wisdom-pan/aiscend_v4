@@ -2,6 +2,7 @@ import {
   View,
   Text,
   TouchableHighlight,
+  TouchableOpacity,
   KeyboardAvoidingView,
   StyleSheet,
   ScrollView,
@@ -9,7 +10,10 @@ import {
   TextInput,
   Dimensions,
   Keyboard,
-  Image
+  Image,
+  Modal,
+  TouchableWithoutFeedback,
+  Alert
 } from 'react-native'
 import { useState, useRef, useContext } from 'react'
 import { DOMAIN, IMAGE_MODELS, ILLUSION_DIFFUSION_IMAGES } from '../../constants'
@@ -21,6 +25,7 @@ import { useActionSheet } from '@expo/react-native-action-sheet'
 import * as FileSystem from 'expo-file-system'
 import * as ImagePicker from 'expo-image-picker'
 import * as Clipboard from 'expo-clipboard'
+import { CameraRoll } from '@react-native-camera-roll/camera-roll'
 
 const { width } = Dimensions.get('window')
 
@@ -49,6 +54,10 @@ export function Images() {
   } = useContext(AppContext)
 
   const { showActionSheetWithOptions } = useActionSheet()
+
+  // 图片预览状态
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [previewVisible, setPreviewVisible] = useState(false)
 
   const hideInput =
   imageModel === IMAGE_MODELS.removeBg.label ||
@@ -160,6 +169,37 @@ export function Images() {
       index: uuid,
       values: []
     })
+  }
+
+  // 打开图片预览
+  const openPreview = (imageUrl: string) => {
+    setPreviewImage(imageUrl)
+    setPreviewVisible(true)
+  }
+
+  // 保存图片到相册
+  const saveToGallery = async (imageUrl: string) => {
+    try {
+      // 下载图片到本地
+      const downloadResumable = FileSystem.createDownloadResumable(
+        imageUrl,
+        FileSystem.documentDirectory + `temp_image_${Date.now()}.png`
+      )
+      const downloadResult = await downloadResumable.downloadAsync()
+
+      if (downloadResult && downloadResult.uri) {
+        // 保存到相册
+        await CameraRoll.save(downloadResult.uri, { type: 'photo', album: 'Aiscend' })
+
+        // 删除临时文件
+        await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true })
+
+        Alert.alert('保存成功', '图片已保存到相册')
+      }
+    } catch (error: any) {
+      console.error('Save to gallery error:', error)
+      Alert.alert('保存失败', error.message || '无法保存到相册')
+    }
   }
 
   async function showClipboardActionsheet(d) {
@@ -334,8 +374,19 @@ export function Images() {
                   v.image && (
                     <View>
                       <TouchableHighlight
-                        onPress={() => showClipboardActionsheet(v)}
+                        onPress={() => openPreview(v.image)}
+                        onLongPress={() => {
+                          Alert.alert(
+                            '保存图片',
+                            '确定要保存到相册吗？',
+                            [
+                              { text: '取消', style: 'cancel' },
+                              { text: '保存', onPress: () => saveToGallery(v.image) }
+                            ]
+                          )
+                        }}
                         underlayColor={'transparent'}
+                        delayLongPress={500}
                       >
                         <Image
                           source={{ uri: v.image }}
@@ -419,6 +470,46 @@ export function Images() {
           )
         }
       </KeyboardAvoidingView>
+
+      {/* 图片预览 Modal */}
+      <Modal
+        visible={previewVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewVisible(false)}
+      >
+        <View style={styles.previewModal}>
+          <TouchableWithoutFeedback onPress={() => setPreviewVisible(false)}>
+            <View style={styles.previewBackdrop} />
+          </TouchableWithoutFeedback>
+
+          {previewImage && (
+            <View style={styles.previewContent}>
+              <Image
+                source={{ uri: previewImage }}
+                style={styles.previewImage}
+                resizeMode="contain"
+              />
+              <View style={styles.previewActions}>
+                <TouchableOpacity
+                  style={styles.previewBtn}
+                  onPress={() => saveToGallery(previewImage)}
+                >
+                  <Ionicons name="download-outline" size={24} color="#fff" />
+                  <Text style={styles.previewBtnText}>保存到相册</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.previewBtn}
+                  onPress={() => setPreviewVisible(false)}
+                >
+                  <Ionicons name="close-outline" size={24} color="#fff" />
+                  <Text style={styles.previewBtnText}>关闭</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -604,5 +695,45 @@ const getStyles = theme => StyleSheet.create({
   buttonText: {
     color: theme.textColor,
     fontFamily: theme.mediumFont,
+  },
+  // 图片预览 Modal 样式
+  previewModal: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  previewBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.9)'
+  },
+  previewContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  previewImage: {
+    width: width,
+    height: width
+  },
+  previewActions: {
+    position: 'absolute',
+    bottom: 60,
+    flexDirection: 'row',
+    gap: 20
+  },
+  previewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 25,
+    gap: 8
+  },
+  previewBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500'
   },
 })
